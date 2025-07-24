@@ -2,11 +2,16 @@ package main
 
 import (
 	"bytes"
-	"fmt"
+	"doc_generator/pkg/parsers"
+	"doc_generator/pkg/store"
 	goImg "image"
 	"image/color"
+	"io/fs"
 	"log"
 	"math"
+	"os"
+	"path"
+	"path/filepath"
 
 	"github.com/ebitenui/ebitenui"
 	"github.com/ebitenui/ebitenui/image"
@@ -30,6 +35,8 @@ func init() {
 
 type Game struct {
 	ui *ebitenui.UI
+
+	source store.Source
 }
 
 func (g *Game) Update() error {
@@ -40,6 +47,21 @@ func (g *Game) Update() error {
 func (g *Game) Draw(screen *ebiten.Image) {
 	g.ui.Draw(screen)
 
+	nineSlice := DefaultNineSlice(colornames.Darkslategray)
+
+	x, y := 10, 0
+	face := DefaultFont()
+	for _, file := range g.source.Files {
+		width, height := text.Measure(file.Name, face, 48)
+		nineSlice.Draw(screen, int(width)+10, int(height)+10, func(opts *ebiten.DrawImageOptions) {
+			opts.GeoM.Translate(float64(x), float64(y))
+		})
+		opts := &text.DrawOptions{}
+		opts.GeoM.Translate(float64(x)+5, float64(y)+5)
+		text.Draw(screen, file.Name, face, opts)
+		y += int(height) + 10
+	}
+
 	ebitenutil.DebugPrint(screen, "Hello, World!")
 }
 
@@ -48,6 +70,28 @@ func (g *Game) Layout(outsideWidth, outsideHeight int) (screenWidth, screenHeigh
 }
 
 func main() {
+
+	inputPath := os.Args[1]
+
+	source := store.Source{}
+
+	filepath.WalkDir(inputPath, func(fPath string, d fs.DirEntry, err error) error {
+
+		fileType := path.Ext(fPath)
+
+		if fileType == ".cpp" {
+			file, err := os.ReadFile(fPath)
+			if err != nil {
+				panic(err)
+			}
+
+			parser := &parsers.CPlusPlus{FileName: fPath, File: file}
+			parser.Parse(&source)
+		}
+
+		return nil
+	})
+
 	ebiten.SetWindowSize(1080, 720)
 	ebiten.SetWindowTitle("Code Browser")
 
@@ -83,7 +127,10 @@ func main() {
 	)
 	root.AddChild(button)
 
-	if err := ebiten.RunGame(&Game{ui: &ebitenui.UI{Container: root}}); err != nil {
+	if err := ebiten.RunGame(&Game{
+		source: source,
+		ui:     &ebitenui.UI{Container: root},
+	}); err != nil {
 		log.Fatal(err)
 	}
 }
@@ -142,7 +189,6 @@ func DrawFilledPath(img *ebiten.Image, path *vector.Path, clr color.Color) {
 		vertices[i].ColorB = float32(b) / float32(0xffff)
 		vertices[i].ColorA = 1
 	}
-	fmt.Println(vertices)
 
 	op := &ebiten.DrawTrianglesOptions{}
 	op.AntiAlias = true
