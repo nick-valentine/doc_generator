@@ -85,9 +85,9 @@ func (cpp *CPlusPlus) ParsePreprocInclude(cursor *tree_sitter.TreeCursor, file *
 		node := c.Node()
 		switch node.Kind() {
 		case "string_literal":
-			file.AddFileImport(store.File{Name: cpp.StringContentFromStringLiteral(cursor)})
+			file.AddFileImport(cpp.StringContentFromStringLiteral(cursor))
 		case "system_lib_string":
-			file.AddFileImport(store.File{Name: NodeSource(cpp.File, node)})
+			file.AddFileImport(NodeSource(cpp.File, node))
 		}
 	})
 }

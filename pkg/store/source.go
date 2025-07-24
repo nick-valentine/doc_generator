@@ -15,9 +15,9 @@ func (s *Source) GetFile(name string) *File {
 
 type File struct {
 	Name        string
-	FileImports []File
+	FileImports []string
 }
 
-func (f *File) AddFileImport(impt File) {
+func (f *File) AddFileImport(impt string) {
 	f.FileImports = append(f.FileImports, impt)
 }
