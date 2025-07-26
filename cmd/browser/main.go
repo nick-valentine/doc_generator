@@ -9,9 +9,11 @@ import (
 	"io/fs"
 	"log"
 	"math"
+	"math/rand/v2"
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 
 	"github.com/ebitenui/ebitenui"
 	"github.com/ebitenui/ebitenui/image"
@@ -20,6 +22,7 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"github.com/hajimehoshi/ebiten/v2/text/v2"
 	"github.com/hajimehoshi/ebiten/v2/vector"
+	"golang.org/x/exp/constraints"
 	"golang.org/x/image/colornames"
 	"golang.org/x/image/font/gofont/goregular"
 )
@@ -33,40 +36,165 @@ func init() {
 	whiteImage.Fill(color.White)
 }
 
+type Vector[T any] struct {
+	X T
+	Y T
+}
+
+type Number interface {
+	constraints.Float | constraints.Integer
+}
+
+func Sub[T Number](a, b Vector[T]) Vector[T] {
+	return Vector[T]{
+		X: a.X - b.X,
+		Y: a.Y - b.Y,
+	}
+}
+
+func Add[T Number](a, b Vector[T]) Vector[T] {
+	return Vector[T]{
+		X: a.X + b.X,
+		Y: a.Y + b.Y,
+	}
+}
+
+func Len[T Number](a Vector[T]) float64 {
+	x := float64(a.X)
+	y := float64(a.Y)
+	return math.Sqrt((x * x) + (y * y))
+}
+
+func Normalized[T constraints.Float](a Vector[T]) Vector[T] {
+	len := Len(a)
+	return Vector[T]{
+		X: a.X / T(len),
+		Y: a.Y / T(len),
+	}
+}
+
+func INormalized[T constraints.Integer](a Vector[T]) Vector[float64] {
+	len := Len(a)
+	return Vector[float64]{
+		X: float64(a.X) / float64(len),
+		Y: float64(a.Y) / float64(len),
+	}
+}
+
+type IVec = Vector[int32]
+type FVec = Vector[float32]
+
+type Edge struct {
+	From int
+	To   int
+}
+
+type Graph[T any] struct {
+	Vertices []T
+	Links    []Edge
+}
+
+type ImportVertex struct {
+	Position FVec
+	FileName string
+}
+
+type ImportView struct {
+	Graph Graph[ImportVertex]
+}
+
+func (iv *ImportView) Draw(screen *ebiten.Image) {
+	nineSlice := DefaultNineSlice(colornames.Darkslategray)
+	face := DefaultFont()
+	for _, file := range iv.Graph.Vertices {
+		width, height := text.Measure(file.FileName, face, 48)
+		nineSlice.Draw(screen, int(width)+10, int(height)+10, func(opts *ebiten.DrawImageOptions) {
+			opts.GeoM.Translate(float64(file.Position.X), float64(file.Position.Y))
+		})
+		opts := &text.DrawOptions{}
+		opts.GeoM.Translate(float64(file.Position.X)+5, float64(file.Position.Y)+5)
+		text.Draw(screen, file.FileName, face, opts)
+	}
+
+	for _, link := range iv.Graph.Links {
+		fromPos := iv.Graph.Vertices[link.From].Position
+		toPos := iv.Graph.Vertices[link.To].Position
+		vector.StrokeLine(screen, fromPos.X, fromPos.Y, toPos.X, toPos.Y, 1.0, colornames.Darkgreen, true)
+	}
+}
+
+func (iv *ImportView) Update() {
+	for idxA, a := range iv.Graph.Vertices {
+		for idxB, b := range iv.Graph.Vertices {
+			if idxA == idxB {
+				continue
+			}
+
+			areLinked := -1 != slices.IndexFunc(iv.Graph.Links, func(v Edge) bool {
+				return (v.From == idxA && v.To == idxB) ||
+					(v.From == idxB && v.To == idxA)
+			})
+
+			fromPos := a.Position
+			if fromPos.X == b.Position.X && fromPos.Y == b.Position.Y {
+				fromPos = Add(b.Position, FVec{rand.Float32() - 0.5, rand.Float32() - 0.5})
+			}
+			diff := Sub(fromPos, b.Position)
+
+			distGoal := 300
+			if areLinked {
+				distGoal = 100
+			}
+
+			normalized := Normalized(diff)
+			if Len(diff) > float64(distGoal) {
+				iv.Graph.Vertices[idxA].Position = Sub(a.Position, normalized)
+			} else {
+				iv.Graph.Vertices[idxA].Position = Add(a.Position, normalized)
+			}
+		}
+	}
+}
+
 type Game struct {
 	ui *ebitenui.UI
 
 	source store.Source
+
+	importView ImportView
 }
 
 func (g *Game) Update() error {
 	g.ui.Update()
+	g.importView.Update()
 	return nil
 }
 
 func (g *Game) Draw(screen *ebiten.Image) {
 	g.ui.Draw(screen)
 
-	nineSlice := DefaultNineSlice(colornames.Darkslategray)
+	g.importView.Draw(screen)
 
-	x, y := 10, 0
-	face := DefaultFont()
-	for _, file := range g.source.Files {
-		width, height := text.Measure(file.Name, face, 48)
-		nineSlice.Draw(screen, int(width)+10, int(height)+10, func(opts *ebiten.DrawImageOptions) {
-			opts.GeoM.Translate(float64(x), float64(y))
-		})
-		opts := &text.DrawOptions{}
-		opts.GeoM.Translate(float64(x)+5, float64(y)+5)
-		text.Draw(screen, file.Name, face, opts)
-		y += int(height) + 10
-	}
+	//nineSlice := DefaultNineSlice(colornames.Darkslategray)
+
+	//x, y := 10, 0
+	//face := DefaultFont()
+	//for _, file := range g.source.Files {
+	//	width, height := text.Measure(file.Name, face, 48)
+	//	nineSlice.Draw(screen, int(width)+10, int(height)+10, func(opts *ebiten.DrawImageOptions) {
+	//		opts.GeoM.Translate(float64(x), float64(y))
+	//	})
+	//	opts := &text.DrawOptions{}
+	//	opts.GeoM.Translate(float64(x)+5, float64(y)+5)
+	//	text.Draw(screen, file.Name, face, opts)
+	//	y += int(height) + 10
+	//}
 
 	ebitenutil.DebugPrint(screen, "Hello, World!")
 }
 
 func (g *Game) Layout(outsideWidth, outsideHeight int) (screenWidth, screenHeight int) {
-	return 1080, 720
+	return 1920, 1080
 }
 
 func main() {
@@ -79,7 +207,7 @@ func main() {
 
 		fileType := path.Ext(fPath)
 
-		if fileType == ".cpp" {
+		if fileType == ".cpp" || fileType == ".hpp" || fileType == ".h" || fileType == ".c" {
 			file, err := os.ReadFile(fPath)
 			if err != nil {
 				panic(err)
@@ -127,9 +255,31 @@ func main() {
 	)
 	root.AddChild(button)
 
+	iv := ImportView{}
+	for _, file := range source.Files {
+		iv.Graph.Vertices = append(iv.Graph.Vertices, ImportVertex{
+			Position: FVec{(1920 / 2) + (rand.Float32() - 0.5), (1080 / 2) + (rand.Float32() - 0.5)},
+			FileName: file.Name,
+		})
+	}
+	for _, file := range source.Files {
+		from := slices.IndexFunc(iv.Graph.Vertices, func(v ImportVertex) bool {
+			return v.FileName == file.Name
+		})
+		for _, imported := range file.FileImports {
+			to := slices.IndexFunc(iv.Graph.Vertices, func(v ImportVertex) bool {
+				return path.Base(v.FileName) == path.Base(imported)
+			})
+			if to != -1 {
+				iv.Graph.Links = append(iv.Graph.Links, Edge{from, to})
+			}
+		}
+	}
+
 	if err := ebiten.RunGame(&Game{
-		source: source,
-		ui:     &ebitenui.UI{Container: root},
+		source:     source,
+		ui:         &ebitenui.UI{Container: root},
+		importView: iv,
 	}); err != nil {
 		log.Fatal(err)
 	}

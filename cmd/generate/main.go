@@ -19,7 +19,7 @@ func main() {
 
 		fileType := path.Ext(fPath)
 
-		if fileType == ".cpp" {
+		if fileType == ".cpp" || fileType == ".hpp" || fileType == ".h" || fileType == ".c" {
 			file, err := os.ReadFile(fPath)
 			if err != nil {
 				panic(err)
