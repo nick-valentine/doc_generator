@@ -1,12 +1,9 @@
 module doc_generator
 
-go 1.24.3
+go 1.22.0
 
-require (
-	github.com/hajimehoshi/ebiten/v2 v2.8.8
-	github.com/tree-sitter/go-tree-sitter v0.25.0
-	github.com/tree-sitter/tree-sitter-cpp v0.23.4
-)
+
+
 
 require (
 	github.com/ebitengine/gomobile v0.0.0-20250209143333-6071a2a2351c // indirect
