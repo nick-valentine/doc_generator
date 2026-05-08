@@ -10,8 +10,8 @@ type Parser interface {
 
 // Generator represents an output plugin that produces structured documentation from a Source in-memory database.
 type Generator interface {
-	// Generate converts all symbols and files in the source store into a formatted documentation string.
-	Generate(source *Source) (string, error)
+	// Generate converts all symbols and files in the source store and writes the output to the specified directory.
+	Generate(source *Source, outputDir string) error
 }
 
 // SymbolType specifies the kind of symbol represented (e.g. struct, function, method, field).
@@ -88,6 +88,47 @@ type Source struct {
 	Symbols []Symbol
 	// Calls is the list of all registered caller-to-callee relationships.
 	Calls   []CallRelation
+
+	indexesBuilt bool
+	callersIndex map[string][]string
+	calleesIndex map[string][]string
+	callsSet     map[CallRelation]bool
+}
+
+func (s *Source) buildIndexes() {
+	s.callersIndex = make(map[string][]string)
+	s.calleesIndex = make(map[string][]string)
+
+	addUnique := func(m map[string][]string, key string, val string) {
+		for _, existing := range m[key] {
+			if strings.EqualFold(existing, val) {
+				return
+			}
+		}
+		m[key] = append(m[key], val)
+	}
+
+	for _, c := range s.Calls {
+		calleeLower := strings.ToLower(c.Callee)
+		callerLower := strings.ToLower(c.Caller)
+
+		// Index for GetCallers (key is callee, value is caller)
+		addUnique(s.callersIndex, calleeLower, c.Caller)
+		for i, ch := range calleeLower {
+			if ch == '.' && i < len(calleeLower)-1 {
+				addUnique(s.callersIndex, calleeLower[i+1:], c.Caller)
+			}
+		}
+
+		// Index for GetCallees (key is caller, value is callee)
+		addUnique(s.calleesIndex, callerLower, c.Callee)
+		for i, ch := range callerLower {
+			if ch == '.' && i < len(callerLower)-1 {
+				addUnique(s.calleesIndex, callerLower[i+1:], c.Callee)
+			}
+		}
+	}
+	s.indexesBuilt = true
 }
 
 // GetFile retrieves a registered file by its relative path, returning nil if not found.
@@ -119,52 +160,50 @@ func (s *Source) AddCall(caller, callee string) {
 	if caller == "" || callee == "" {
 		return
 	}
-	for _, c := range s.Calls {
-		if c.Caller == caller && c.Callee == callee {
-			return
+
+	if s.callsSet == nil {
+		s.callsSet = make(map[CallRelation]bool)
+		for _, c := range s.Calls {
+			s.callsSet[c] = true
 		}
 	}
-	s.Calls = append(s.Calls, CallRelation{Caller: caller, Callee: callee})
+
+	rel := CallRelation{Caller: caller, Callee: callee}
+	if s.callsSet[rel] {
+		return
+	}
+
+	s.Calls = append(s.Calls, rel)
+	s.callsSet[rel] = true
+	s.indexesBuilt = false
 }
 
 // GetCallers retrieves all direct callers for a given callee symbol.
 func (s *Source) GetCallers(symbolName string) []string {
-	var result []string
-	for _, c := range s.Calls {
-		if strings.EqualFold(c.Callee, symbolName) || strings.HasSuffix(strings.ToLower(c.Callee), "."+strings.ToLower(symbolName)) {
-			found := false
-			for _, r := range result {
-				if strings.EqualFold(r, c.Caller) {
-					found = true
-					break
-				}
-			}
-			if !found {
-				result = append(result, c.Caller)
-			}
-		}
+	if !s.indexesBuilt {
+		s.buildIndexes()
 	}
-	return result
+	res := s.callersIndex[strings.ToLower(symbolName)]
+	if res == nil {
+		return nil
+	}
+	out := make([]string, len(res))
+	copy(out, res)
+	return out
 }
 
 // GetCallees retrieves all direct callees for a given caller symbol.
 func (s *Source) GetCallees(symbolName string) []string {
-	var result []string
-	for _, c := range s.Calls {
-		if strings.EqualFold(c.Caller, symbolName) || strings.HasSuffix(strings.ToLower(c.Caller), "."+strings.ToLower(symbolName)) {
-			found := false
-			for _, r := range result {
-				if strings.EqualFold(r, c.Callee) {
-					found = true
-					break
-				}
-			}
-			if !found {
-				result = append(result, c.Callee)
-			}
-		}
+	if !s.indexesBuilt {
+		s.buildIndexes()
 	}
-	return result
+	res := s.calleesIndex[strings.ToLower(symbolName)]
+	if res == nil {
+		return nil
+	}
+	out := make([]string, len(res))
+	copy(out, res)
+	return out
 }
 
 // SearchSymbols returns symbols whose names contain the query (case-insensitive).

@@ -2,3 +2,8 @@ main
 docs/index.html
 docs/images/
 docs/graphs/
+docs/beholderFPS/
+*.so
+docs/html
+docs/markdown
+docs/beholderFPS/

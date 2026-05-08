@@ -1,0 +1,11 @@
+[input]
+directory = "."
+ignore = ["vendor", ".git", ".gopath", "docs", "plugins"]
+
+[[output]]
+format = "html"
+directory = "docs/html"
+
+[[output]]
+format = "markdown"
+directory = "docs/markdown"

@@ -3,6 +3,8 @@ package generators
 import (
 	"bytes"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"doc_generator/pkg/store"
@@ -12,8 +14,8 @@ import (
 // It formats the parsed files, structs, fields, and methods into a premium self-contained HTML document.
 type HTMLGenerator struct{}
 
-// Generate builds a fully styled, premium, single-page HTML application summarizing all files and symbols.
-func (hg *HTMLGenerator) Generate(source *store.Source) (string, error) {
+// Generate builds a fully styled, premium, single-page HTML application summarizing all files and symbols, and writes it to outputDir.
+func (hg *HTMLGenerator) Generate(source *store.Source, outputDir string) error {
 	structs := getSymbolsOfKind(source, store.SymStruct)
 	interfaces := getSymbolsOfKind(source, store.SymInterface)
 	funcs := getSymbolsOfKind(source, store.SymFunction)
@@ -476,6 +478,16 @@ func (hg *HTMLGenerator) Generate(source *store.Source) (string, error) {
 	buf.WriteString(`        </div>
 
         <div class="nav-section">
+            <div class="nav-section-title">Packages</div>
+`)
+	packages := getSymbolsOfKind(source, "package")
+	for _, pkg := range packages {
+		buf.WriteString(fmt.Sprintf(`            <a href="javascript:void(0)" onclick="filterByPackage('%s')" class="nav-link">📦 %s</a>`+"\n", pkg.Name, pkg.Name))
+	}
+
+	buf.WriteString(`        </div>
+
+        <div class="nav-section">
             <div class="nav-section-title">Structures</div>
 `)
 	for _, s := range structs {
@@ -623,7 +635,8 @@ func (hg *HTMLGenerator) Generate(source *store.Source) (string, error) {
                             <tr style="border-bottom: 2px solid var(--border-color); color: var(--text-primary);">
                                 <th style="padding: 0.4rem;">Name</th>
                                 <th style="padding: 0.4rem;">Lines</th>
-                                <th style="padding: 0.4rem;">CRAP (Complexity)</th>
+                                <th style="padding: 0.4rem;">Complexity</th>
+                                <th style="padding: 0.4rem;">CRAP</th>
                                 <th style="padding: 0.4rem;">Status</th>
                             </tr>
                         </thead>
@@ -632,34 +645,37 @@ func (hg *HTMLGenerator) Generate(source *store.Source) (string, error) {
 
 	// Gather all functions/methods to show complexity
 	var metricsFound bool
-	for _, fn := range funcs {
+	renderMetricRow := func(sym store.Symbol, displayName string) string {
 		metricsFound = true
+		crap := sym.Complexity*sym.Complexity + sym.Complexity
 		status := `<span style="color: #10B981; font-weight: 600;">Good</span>`
-		if fn.LineCount > 30 || fn.Complexity > 3 {
-			status = `<span style="color: #F59E0B; font-weight: 600;">Large/Complex</span>`
+		if crap > 20 || sym.LineCount > 50 {
+			status = `<span style="color: #F59E0B; font-weight: 600;">Complex</span>`
 		}
-		buf.WriteString(fmt.Sprintf(`                            <tr class="metric-row" data-file="%s">
-                                <td style="padding: 0.4rem; font-family: monospace; color: var(--text-primary);"><a href="#func-%s" style="color: inherit; text-decoration: none;">%s()</a></td>
+		if crap > 50 {
+			status = `<span style="color: #EF4444; font-weight: 600;">CRITICAL</span>`
+		}
+		anchor := "func-" + sym.Name
+		if sym.Parent != "" {
+			anchor = "struct-" + sym.Parent
+		}
+		return fmt.Sprintf(`                            <tr class="metric-row" data-file="%s">
+                                <td style="padding: 0.4rem; font-family: monospace; color: var(--text-primary);"><a href="#%s" style="color: inherit; text-decoration: none;">%s</a></td>
+                                <td style="padding: 0.4rem;">%d</td>
                                 <td style="padding: 0.4rem;">%d</td>
                                 <td style="padding: 0.4rem;">%d</td>
                                 <td style="padding: 0.4rem;">%s</td>
-                            </tr>`+"\n", fn.File, fn.Name, fn.Name, fn.LineCount, fn.Complexity, status))
+                            </tr>`+"\n", sym.File, anchor, displayName, sym.LineCount, sym.Complexity, crap, status)
+	}
+
+	for _, fn := range funcs {
+		buf.WriteString(renderMetricRow(fn, fn.Name+"()"))
 	}
 	// Add Methods to complexity table
 	for _, s := range structs {
 		methods := source.GetStructMethods(s.Name)
 		for _, m := range methods {
-			metricsFound = true
-			status := `<span style="color: #10B981; font-weight: 600;">Good</span>`
-			if m.LineCount > 30 || m.Complexity > 3 {
-				status = `<span style="color: #F59E0B; font-weight: 600;">Large/Complex</span>`
-			}
-			buf.WriteString(fmt.Sprintf(`                            <tr class="metric-row" data-file="%s">
-                                <td style="padding: 0.4rem; font-family: monospace; color: var(--text-primary);">%s.%s()</td>
-                                <td style="padding: 0.4rem;">%d</td>
-                                <td style="padding: 0.4rem;">%d</td>
-                                <td style="padding: 0.4rem;">%s</td>
-                            </tr>`+"\n", m.File, s.Name, m.Name, m.LineCount, m.Complexity, status))
+			buf.WriteString(renderMetricRow(m, s.Name+"."+m.Name+"()"))
 		}
 	}
 	if !metricsFound {
@@ -806,6 +822,27 @@ func (hg *HTMLGenerator) Generate(source *store.Source) (string, error) {
 			}
 		}
 
+		// Explicit relations from the parser
+		for _, rel := range s.Relations {
+			// Find if it's a struct or interface
+			found := false
+			for _, other := range structs {
+				if other.Name == rel {
+					relations = append(relations, fmt.Sprintf(`🔗 relates to <a href="#struct-%s" style="color: #818CF8; font-weight: 600;">%s</a>`, other.Name, other.Name))
+					found = true
+					break
+				}
+			}
+			if !found {
+				for _, other := range interfaces {
+					if other.Name == rel {
+						relations = append(relations, fmt.Sprintf(`🔌 implements/uses <a href="#interface-%s" style="color: #34D399; font-weight: 600;">%s</a>`, other.Name, other.Name))
+						break
+					}
+				}
+			}
+		}
+
 		buf.WriteString(fmt.Sprintf(`                    </div>
                 </div>
                 <div class="location">%s (Line %d)</div>`+"\n", s.File, s.Line))
@@ -917,28 +954,45 @@ func (hg *HTMLGenerator) Generate(source *store.Source) (string, error) {
 	if len(interfaces) > 0 {
 		buf.WriteString(`        <div class="doc-section">
             <div class="doc-section-title">Interfaces</div>` + "\n")
-		for _, s := range interfaces {
-			buf.WriteString(fmt.Sprintf(`            <div class="card" id="interface-%s">
+	for _, s := range interfaces {
+		buf.WriteString(fmt.Sprintf(`            <div class="card" id="interface-%s" data-file="%s">
                 <div class="card-header">
                     <div class="card-title">%s</div>
-                    <div class="meta-tags">`+"\n", s.Name, s.Name))
+                    <div class="meta-tags">`+"\n", s.Name, s.File, s.Name))
 
-			for _, aud := range s.Audience {
-				buf.WriteString(fmt.Sprintf(`                        <span class="tag tag-aud">%s</span>`+"\n", aud))
-			}
-			for _, comp := range s.Compatibility {
-				buf.WriteString(fmt.Sprintf(`                        <span class="tag tag-comp">%s</span>`+"\n", comp))
-			}
+		for _, aud := range s.Audience {
+			buf.WriteString(fmt.Sprintf(`                        <span class="tag tag-aud">%s</span>`+"\n", aud))
+		}
+		for _, comp := range s.Compatibility {
+			buf.WriteString(fmt.Sprintf(`                        <span class="tag tag-comp">%s</span>`+"\n", comp))
+		}
 
-			buf.WriteString(fmt.Sprintf(`                    </div>
+		// Show implementors
+		var implementors []string
+		for _, other := range structs {
+			for _, rel := range other.Relations {
+				if rel == s.Name {
+					implementors = append(implementors, fmt.Sprintf(`<a href="#struct-%s" style="color: #818CF8; font-weight: 600;">%s</a>`, other.Name, other.Name))
+				}
+			}
+		}
+
+		buf.WriteString(fmt.Sprintf(`                    </div>
                 </div>
-                <div class="location">%s (Line %d)</div>
-                <div style="margin: 0.5rem 0 1rem 0; font-size: 0.85rem; color: var(--text-secondary); display: flex; flex-wrap: wrap; gap: 1rem; align-items: center;">
+                <div class="location">%s (Line %d)</div>`+"\n", s.File, s.Line))
+
+		if len(implementors) > 0 {
+			buf.WriteString(`                <div style="margin: 0.5rem 0 1rem 0; font-size: 0.85rem; color: var(--text-secondary);">
+                    📥 <strong>Implemented by:</strong> ` + strings.Join(implementors, ", ") + `
+                </div>` + "\n")
+		}
+
+		buf.WriteString(fmt.Sprintf(`                <div style="margin: 0.5rem 0 1rem 0; font-size: 0.85rem; color: var(--text-secondary); display: flex; flex-wrap: wrap; gap: 1rem; align-items: center;">
                     <a href="graphs/%s_type.html" class="graph-btn" target="_blank" style="font-size: 0.8rem; padding: 0.25rem 0.6rem; margin-left: auto;">
                         <span>🧬 View Relationship Graph</span>
                         <span class="arrow">↗</span>
                     </a>
-                </div>`+"\n", s.File, s.Line, s.Name))
+                </div>`+"\n", s.Name))
 
 			if s.Doc != "" {
 				cleanDoc := strings.ReplaceAll(strings.TrimSpace(s.Doc), "\n", "<br>")
@@ -1025,6 +1079,14 @@ func (hg *HTMLGenerator) Generate(source *store.Source) (string, error) {
             }
         }
 
+        function filterByPackage(pkgName) {
+            const searchInput = document.getElementById('searchInput');
+            if (searchInput) {
+                searchInput.value = pkgName + ".";
+                filterDashboard();
+            }
+        }
+
         function filterDashboard() {
             const query = document.getElementById('searchInput').value.toLowerCase();
             const audFilter = document.getElementById('audFilter').value.toLowerCase();
@@ -1094,8 +1156,10 @@ func (hg *HTMLGenerator) Generate(source *store.Source) (string, error) {
 </body>
 </html>
 `)
-
-	return buf.String(), nil
+	if err := os.MkdirAll(outputDir, 0755); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(outputDir, "index.html"), buf.Bytes(), 0644)
 }
 
 // renderTypeWithLinks wraps any matching struct type name with a clickable anchor link.

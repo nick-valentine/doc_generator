@@ -3,6 +3,8 @@ package generators
 import (
 	"bytes"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"doc_generator/pkg/store"
@@ -12,8 +14,8 @@ import (
 // It formats the parsed files, structs, fields, and methods into an elegant Markdown document.
 type MarkdownGenerator struct{}
 
-// Generate builds a structured Markdown string summarizing all files and symbols in the provided source store.
-func (mg *MarkdownGenerator) Generate(source *store.Source) (string, error) {
+// Generate builds a structured Markdown string summarizing all files and symbols, and writes it to outputDir.
+func (mg *MarkdownGenerator) Generate(source *store.Source, outputDir string) error {
 	var buf bytes.Buffer
 
 	buf.WriteString("# Documentation Summary\n\n")
@@ -169,7 +171,10 @@ func (mg *MarkdownGenerator) Generate(source *store.Source) (string, error) {
 		}
 	}
 
-	return buf.String(), nil
+	if err := os.MkdirAll(outputDir, 0755); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(outputDir, "index.md"), buf.Bytes(), 0644)
 }
 
 // getSymbolsOfKind is a private helper that filters all parsed symbols in the source store by their symbol type.

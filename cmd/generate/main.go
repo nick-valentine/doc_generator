@@ -13,19 +13,42 @@ import (
 	"path/filepath"
 	"plugin"
 	"strings"
+
+	"github.com/pelletier/go-toml/v2"
 )
 
+type Config struct {
+	Input struct {
+		Directory string   `toml:"directory"`
+		Ignore    []string `toml:"ignore"`
+	} `toml:"input"`
+	Output []struct {
+		Format    string `toml:"format"`
+		Directory string `toml:"directory"`
+	} `toml:"output"`
+}
+
 func main() {
+	configFlag := flag.String("config", "docgen.toml", "Path to TOML configuration file")
 	audienceFlag := flag.String("audience", "", "Filter symbols by audience (e.g. API, INTERNAL, USER, DEVELOPER)")
-	formatFlag := flag.String("format", "html", "Output format: html or text")
 	flag.Parse()
 
-	args := flag.Args()
-	if len(args) < 1 {
-		fmt.Println("Usage: go run cmd/generate/main.go [-audience <tag>] [-format <html|text>] <input_directory>")
+	configData, err := os.ReadFile(*configFlag)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error reading config file %s: %v\n", *configFlag, err)
 		os.Exit(1)
 	}
-	inputPath := args[0]
+
+	var config Config
+	if err := toml.Unmarshal(configData, &config); err != nil {
+		fmt.Fprintf(os.Stderr, "Error parsing config file: %v\n", err)
+		os.Exit(1)
+	}
+
+	if config.Input.Directory == "" {
+		fmt.Fprintf(os.Stderr, "Error: input.directory must be specified in config\n")
+		os.Exit(1)
+	}
 
 	source := store.Source{}
 
@@ -35,16 +58,20 @@ func main() {
 		os.Exit(1)
 	}
 
-	err = filepath.WalkDir(inputPath, func(fPath string, d fs.DirEntry, err error) error {
+	err = filepath.WalkDir(config.Input.Directory, func(fPath string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 
-		// Ignore hidden folders, .gopath, and the copied go-tree-sitter folder
 		if d.IsDir() {
 			name := d.Name()
 			if (strings.HasPrefix(name, ".") && name != "." && name != "..") || name == "go-tree-sitter" || name == "vendor" {
 				return filepath.SkipDir
+			}
+			for _, ign := range config.Input.Ignore {
+				if name == ign {
+					return filepath.SkipDir
+				}
 			}
 			return nil
 		}
@@ -81,12 +108,18 @@ func main() {
 		source.Symbols = filteredSymbols
 	}
 
+	var outputDirs []string
+	for _, out := range config.Output {
+		outputDirs = append(outputDirs, out.Directory)
+		_ = os.MkdirAll(out.Directory, 0755)
+	}
+
 	// Generate the static call graph and import graph images
-	generateCallGraphs(&source)
-	generateImportGraph(&source)
-	generateFullProgramGraph(&source)
-	generateRelationsGraph(&source)
-	generateTypeGraphs(&source)
+	generateCallGraphs(&source, outputDirs)
+	generateImportGraph(&source, outputDirs)
+	generateFullProgramGraph(&source, outputDirs)
+	generateRelationsGraph(&source, outputDirs)
+	generateTypeGraphs(&source, outputDirs)
 
 	generatorsList, err := loadGeneratorPlugins()
 	if err != nil {
@@ -94,30 +127,30 @@ func main() {
 		os.Exit(1)
 	}
 
-	var generator store.Generator
-	targetFormat := strings.ToLower(*formatFlag)
-	for _, g := range generatorsList {
-		if g.Format == targetFormat {
-			generator = g.Generator
-			break
+	for _, out := range config.Output {
+		var generator store.Generator
+		targetFormat := strings.ToLower(out.Format)
+		for _, g := range generatorsList {
+			if g.Format == targetFormat {
+				generator = g.Generator
+				break
+			}
+		}
+
+		if generator == nil {
+			if targetFormat == "text" || targetFormat == "markdown" {
+				generator = &generators.MarkdownGenerator{}
+			} else {
+				generator = &generators.HTMLGenerator{}
+			}
+		}
+
+		err := generator.Generate(&source, out.Directory)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error generating documentation for %s: %v\n", out.Format, err)
+			os.Exit(1)
 		}
 	}
-
-	if generator == nil {
-		if targetFormat == "text" {
-			generator = &generators.MarkdownGenerator{}
-		} else {
-			generator = &generators.HTMLGenerator{}
-		}
-	}
-
-	output, err := generator.Generate(&source)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error generating documentation: %v\n", err)
-		os.Exit(1)
-	}
-
-	fmt.Print(output)
 }
 
 type LoadedParser struct {
@@ -249,8 +282,11 @@ func loadGeneratorPlugins() ([]LoadedGenerator, error) {
 }
 
 // generateCallGraphs compiles static PNG call graphs for all methods/functions using the local Graphviz 'dot' utility.
-func generateCallGraphs(source *store.Source) {
-	imagesDir := filepath.Join("docs", "images")
+func generateCallGraphs(source *store.Source, outputDirs []string) {
+	if len(outputDirs) == 0 {
+		return
+	}
+	imagesDir := filepath.Join(outputDirs[0], "images")
 	_ = os.MkdirAll(imagesDir, 0755)
 
 	processed := make(map[string]bool)
@@ -343,13 +379,16 @@ func generateCallGraphs(source *store.Source) {
 		_ = cmd.Run()
 
 		_ = os.Remove(dotPath)
-		_ = writeGraphHTML(filepath.Join("docs", "graphs", fmt.Sprintf("%s_call.html", cleanKey)), fmt.Sprintf("%s Call Graph", key), fmt.Sprintf("../images/%s_call_graph.png", cleanKey))
+		writeGraphHTMLToAll(fmt.Sprintf("%s_call.html", cleanKey), fmt.Sprintf("%s Call Graph", key), fmt.Sprintf("../images/%s_call_graph.png", cleanKey), outputDirs)
 	}
 }
 
 // generateImportGraph compiles a visual package/file import relationship graph.
-func generateImportGraph(source *store.Source) {
-	imagesDir := filepath.Join("docs", "images")
+func generateImportGraph(source *store.Source, outputDirs []string) {
+	if len(outputDirs) == 0 {
+		return
+	}
+	imagesDir := filepath.Join(outputDirs[0], "images")
 	_ = os.MkdirAll(imagesDir, 0755)
 
 	var imports []store.Symbol
@@ -385,12 +424,15 @@ func generateImportGraph(source *store.Source) {
 	_ = cmd.Run()
 
 	_ = os.Remove(dotPath)
-	_ = writeGraphHTML(filepath.Join("docs", "graphs", "imports.html"), "Import Dependency Graph", "../images/imports_graph.png")
+	writeGraphHTMLToAll("imports.html", "Import Dependency Graph", "../images/imports_graph.png", outputDirs)
 }
 
 // generateFullProgramGraph compiles a visual callee graph of the entire program starting from main.
-func generateFullProgramGraph(source *store.Source) {
-	imagesDir := filepath.Join("docs", "images")
+func generateFullProgramGraph(source *store.Source, outputDirs []string) {
+	if len(outputDirs) == 0 {
+		return
+	}
+	imagesDir := filepath.Join(outputDirs[0], "images")
 	_ = os.MkdirAll(imagesDir, 0755)
 
 	dotPath := filepath.Join(imagesDir, "program_graph.dot")
@@ -439,12 +481,15 @@ func generateFullProgramGraph(source *store.Source) {
 	_ = cmd.Run()
 
 	_ = os.Remove(dotPath)
-	_ = writeGraphHTML(filepath.Join("docs", "graphs", "program.html"), "Full Program Callee Graph", "../images/program_graph.png")
+	writeGraphHTMLToAll("program.html", "Full Program Callee Graph", "../images/program_graph.png", outputDirs)
 }
 
 // generateRelationsGraph compiles a visual type relationship diagram (implements, embeds, composition).
-func generateRelationsGraph(source *store.Source) {
-	imagesDir := filepath.Join("docs", "images")
+func generateRelationsGraph(source *store.Source, outputDirs []string) {
+	if len(outputDirs) == 0 {
+		return
+	}
+	imagesDir := filepath.Join(outputDirs[0], "images")
 	_ = os.MkdirAll(imagesDir, 0755)
 
 	dotPath := filepath.Join(imagesDir, "relations_graph.dot")
@@ -538,10 +583,18 @@ func generateRelationsGraph(source *store.Source) {
 	cmd := exec.Command("dot", "-Tpng", "-o", pngPath, dotPath)
 	_ = cmd.Run()
 
-	_ = writeGraphHTML(filepath.Join("docs", "graphs", "relations.html"), "Type Relationships Graph", "../images/relations_graph.png")
+	writeGraphHTMLToAll("relations.html", "Type Relationships Graph", "../images/relations_graph.png", outputDirs)
 }
 
 // writeGraphHTML creates a premium standalone HTML wrapper for displaying a large Graphviz visualization.
+func writeGraphHTMLToAll(filename, title, imageRelPath string, outputDirs []string) {
+	for _, outDir := range outputDirs {
+		graphsDir := filepath.Join(outDir, "graphs")
+		_ = os.MkdirAll(graphsDir, 0755)
+		_ = writeGraphHTML(filepath.Join(graphsDir, filename), title, imageRelPath)
+	}
+}
+
 func writeGraphHTML(outputPath, title, imageRelPath string) error {
 	_ = os.MkdirAll(filepath.Dir(outputPath), 0755)
 	html := fmt.Sprintf(`<!DOCTYPE html>
@@ -643,11 +696,12 @@ func writeGraphHTML(outputPath, title, imageRelPath string) error {
 }
 
 // generateTypeGraphs compiles static PNG type relationship graphs for each struct/interface.
-func generateTypeGraphs(source *store.Source) {
-	imagesDir := filepath.Join("docs", "images")
-	graphsDir := filepath.Join("docs", "graphs")
+func generateTypeGraphs(source *store.Source, outputDirs []string) {
+	if len(outputDirs) == 0 {
+		return
+	}
+	imagesDir := filepath.Join(outputDirs[0], "images")
 	_ = os.MkdirAll(imagesDir, 0755)
-	_ = os.MkdirAll(graphsDir, 0755)
 
 	var structs []store.Symbol
 	var interfaces []store.Symbol
@@ -662,7 +716,7 @@ func generateTypeGraphs(source *store.Source) {
 	for _, s := range structs {
 		dotPath := filepath.Join(imagesDir, fmt.Sprintf("%s_type_graph.dot", s.Name))
 		pngPath := filepath.Join(imagesDir, fmt.Sprintf("%s_type_graph.png", s.Name))
-		htmlPath := filepath.Join(graphsDir, fmt.Sprintf("%s_type.html", s.Name))
+		htmlName := fmt.Sprintf("%s_type.html", s.Name)
 
 		var dot bytes.Buffer
 		dot.WriteString("digraph G {\n")
@@ -737,13 +791,13 @@ func generateTypeGraphs(source *store.Source) {
 		_ = cmd.Run()
 		_ = os.Remove(dotPath)
 
-		_ = writeGraphHTML(htmlPath, fmt.Sprintf("%s Type Relationship Graph", s.Name), fmt.Sprintf("../images/%s_type_graph.png", s.Name))
+		writeGraphHTMLToAll(htmlName, fmt.Sprintf("%s Type Relationship Graph", s.Name), fmt.Sprintf("../images/%s_type_graph.png", s.Name), outputDirs)
 	}
 
 	for _, s := range interfaces {
 		dotPath := filepath.Join(imagesDir, fmt.Sprintf("%s_type_graph.dot", s.Name))
 		pngPath := filepath.Join(imagesDir, fmt.Sprintf("%s_type_graph.png", s.Name))
-		htmlPath := filepath.Join(graphsDir, fmt.Sprintf("%s_type.html", s.Name))
+		htmlName := fmt.Sprintf("%s_type.html", s.Name)
 
 		var dot bytes.Buffer
 		dot.WriteString("digraph G {\n")
@@ -770,9 +824,24 @@ func generateTypeGraphs(source *store.Source) {
 
 		cmd := exec.Command("dot", "-Tpng", "-o", pngPath, dotPath)
 		_ = cmd.Run()
+		copyImageToAll(pngPath, filepath.Base(pngPath), outputDirs)
 		_ = os.Remove(dotPath)
 
-		_ = writeGraphHTML(htmlPath, fmt.Sprintf("%s Interface Implementations", s.Name), fmt.Sprintf("../images/%s_type_graph.png", s.Name))
+		writeGraphHTMLToAll(htmlName, fmt.Sprintf("%s Interface Implementations", s.Name), fmt.Sprintf("../images/%s_type_graph.png", s.Name), outputDirs)
 	}
 }
 
+func copyImageToAll(srcPng string, filename string, outputDirs []string) {
+	if len(outputDirs) <= 1 {
+		return
+	}
+	data, err := os.ReadFile(srcPng)
+	if err != nil {
+		return
+	}
+	for i := 1; i < len(outputDirs); i++ {
+		outImgDir := filepath.Join(outputDirs[i], "images")
+		_ = os.MkdirAll(outImgDir, 0755)
+		_ = os.WriteFile(filepath.Join(outImgDir, filename), data, 0644)
+	}
+}

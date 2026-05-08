@@ -1,0 +1,11 @@
+[input]
+directory = "../beholderFPS"
+ignore = ["vendor", ".git", ".gopath", "cicd"]
+
+[[output]]
+format = "html"
+directory = "docs/beholderFPS"
+
+[[output]]
+format = "markdown"
+directory = "docs/beholderFPS_md"
