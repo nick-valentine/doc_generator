@@ -27,7 +27,9 @@ type GoParser struct {
 	// FileName is the file path of the Go file.
 	FileName string
 	// File contains the raw byte contents of the Go file.
-	File     []byte
+	File []byte
+	// Package is the package name.
+	Package string
 }
 
 // Parse extracts all functions, structures, receiver methods, and fields from the Go file into the source store.
@@ -44,6 +46,26 @@ func (gp *GoParser) Parse(filePath string, fileContent []byte, source *store.Sou
 	defer tree.Close()
 
 	root := tree.RootNode()
+
+	// Find package name
+	for i := 0; i < int(root.ChildCount()); i++ {
+		child := root.Child(uint(i))
+		if child != nil && child.Kind() == "package_clause" {
+			nameNode := child.ChildByFieldName("name")
+			if nameNode != nil {
+				gp.Package = NodeSource(gp.File, nameNode)
+				source.AddSymbol(store.Symbol{
+					Name:    gp.Package,
+					Kind:    "package",
+					File:    gp.FileName,
+					Line:    int(child.StartPosition().Row + 1),
+					Package: gp.Package,
+				})
+			}
+			break
+		}
+	}
+
 	gp.parseNode(root, source)
 	return nil
 }
@@ -210,6 +232,7 @@ func (gp *GoParser) handleFunction(node *tree_sitter.Node, source *store.Source)
 		Doc:           cleanedDoc,
 		Audience:      aud,
 		Compatibility: comp,
+		Package:       gp.Package,
 		Params:        params,
 		Returns:       returns,
 		LineCount:     lineCount,
@@ -218,7 +241,11 @@ func (gp *GoParser) handleFunction(node *tree_sitter.Node, source *store.Source)
 
 	bodyNode := node.ChildByFieldName("body")
 	if bodyNode != nil {
-		gp.findCalls(bodyNode, name, source)
+		caller := name
+		if gp.Package != "" {
+			caller = gp.Package + "." + name
+		}
+		gp.findCalls(bodyNode, caller, source)
 	}
 }
 
@@ -263,6 +290,7 @@ func (gp *GoParser) handleMethod(node *tree_sitter.Node, source *store.Source) {
 		Doc:           cleanedDoc,
 		Audience:      aud,
 		Compatibility: comp,
+		Package:       gp.Package,
 		Parent:        parent,
 		Params:        params,
 		Returns:       returns,
@@ -273,6 +301,9 @@ func (gp *GoParser) handleMethod(node *tree_sitter.Node, source *store.Source) {
 	callerName := name
 	if parent != "" {
 		callerName = parent + "." + name
+	}
+	if gp.Package != "" {
+		callerName = gp.Package + "." + callerName
 	}
 
 	bodyNode := node.ChildByFieldName("body")
@@ -307,6 +338,7 @@ func (gp *GoParser) handleTypeDeclaration(node *tree_sitter.Node, source *store.
 					Doc:           cleanedDoc,
 					Audience:      aud,
 					Compatibility: comp,
+					Package:       gp.Package,
 				})
 
 				gp.handleStructFields(typeNode, name, source)
@@ -319,6 +351,7 @@ func (gp *GoParser) handleTypeDeclaration(node *tree_sitter.Node, source *store.
 					Doc:           cleanedDoc,
 					Audience:      aud,
 					Compatibility: comp,
+					Package:       gp.Package,
 				})
 			}
 		}
@@ -381,6 +414,7 @@ func (gp *GoParser) handleStructFields(structNode *tree_sitter.Node, structName 
 					Audience:      aud,
 					Compatibility: comp,
 					Parent:        structName,
+					Package:       gp.Package,
 					Type:          typeStr,
 				})
 			}
@@ -471,6 +505,7 @@ func (gp *GoParser) handleVariable(node *tree_sitter.Node, source *store.Source)
 					Audience:      aud,
 					Compatibility: comp,
 					Type:          typeStr,
+					Package:       gp.Package,
 				})
 			}
 		}

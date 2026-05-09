@@ -196,10 +196,11 @@ func (p *OdinParser) parseAll() {
 		if m := rePackage.FindStringSubmatch(trimmed); m != nil {
 			p.pkg = m[1]
 			p.source.AddSymbol(store.Symbol{
-				Name: m[1],
-				Kind: "package",
-				File: p.filePath,
-				Line: i + 1,
+				Name:    m[1],
+				Kind:    "package",
+				File:    p.filePath,
+				Line:    i + 1,
+				Package: m[1],
 			})
 			i++
 			continue
@@ -221,11 +222,12 @@ func (p *OdinParser) parseAll() {
 				}
 			}
 			p.source.AddSymbol(store.Symbol{
-				Name: name,
-				Kind: store.SymImport,
-				File: p.filePath,
-				Line: i + 1,
-				Type: path, // store original path in Type field
+				Name:    name,
+				Kind:    store.SymImport,
+				File:    p.filePath,
+				Line:    i + 1,
+				Type:    path, // store original path in Type field
+				Package: p.pkg,
 			})
 			i++
 			continue
@@ -323,6 +325,7 @@ func (p *OdinParser) parseAll() {
 				Line:      i + 1,
 				Doc:       doc,
 				Type:      baseType,
+				Package:   p.pkg,
 				Relations: []string{baseType},
 			})
 			i++
@@ -342,6 +345,7 @@ func (p *OdinParser) parseAll() {
 				Line:      i + 1,
 				Doc:       doc,
 				Type:      baseType,
+				Package:   p.pkg,
 				Relations: []string{baseType},
 			})
 			i++
@@ -414,11 +418,12 @@ func (p *OdinParser) parseAll() {
 func (p *OdinParser) parseStruct(startLine int, name, doc string, isPrivate bool) int {
 	_ = isPrivate
 	p.source.AddSymbol(store.Symbol{
-		Name: name,
-		Kind: store.SymStruct,
-		File: p.filePath,
-		Line: startLine + 1,
-		Doc:  doc,
+		Name:    name,
+		Kind:    store.SymStruct,
+		File:    p.filePath,
+		Line:    startLine + 1,
+		Doc:     doc,
+		Package: p.pkg,
 	})
 	structIdx := len(p.source.Symbols) - 1
 
@@ -456,12 +461,13 @@ func (p *OdinParser) parseStruct(startLine int, name, doc string, isPrivate bool
 						continue
 					}
 					p.source.AddSymbol(store.Symbol{
-						Name:   fName,
-						Kind:   store.SymField,
-						File:   p.filePath,
-						Line:   i + 1,
-						Parent: name,
-						Type:   fieldType,
+						Name:    fName,
+						Kind:    store.SymField,
+						File:    p.filePath,
+						Line:    i + 1,
+						Parent:  name,
+						Type:    fieldType,
+						Package: p.pkg,
 					})
 				}
 
@@ -496,11 +502,12 @@ func (p *OdinParser) parseStruct(startLine int, name, doc string, isPrivate bool
 func (p *OdinParser) parseEnum(startLine int, name, doc string, isPrivate bool) int {
 	_ = isPrivate
 	p.source.AddSymbol(store.Symbol{
-		Name: name,
-		Kind: store.SymInterface,
-		File: p.filePath,
-		Line: startLine + 1,
-		Doc:  doc,
+		Name:    name,
+		Kind:    store.SymInterface,
+		File:    p.filePath,
+		Line:    startLine + 1,
+		Doc:     doc,
+		Package: p.pkg,
 	})
 
 	depth := 0
@@ -535,11 +542,12 @@ func (p *OdinParser) parseEnum(startLine int, name, doc string, isPrivate bool) 
 				varName := m[1]
 				if isValidIdentifier(varName) {
 					p.source.AddSymbol(store.Symbol{
-						Name:   varName,
-						Kind:   store.SymField,
-						File:   p.filePath,
-						Line:   i + 1,
-						Parent: name,
+						Name:    varName,
+						Kind:    store.SymField,
+						File:    p.filePath,
+						Line:    i + 1,
+						Parent:  name,
+						Package: p.pkg,
 					})
 				}
 			}
@@ -559,11 +567,12 @@ func (p *OdinParser) parseEnum(startLine int, name, doc string, isPrivate bool) 
 func (p *OdinParser) parseInterface(startLine int, name, doc string, isPrivate bool) int {
 	_ = isPrivate
 	p.source.AddSymbol(store.Symbol{
-		Name: name,
-		Kind: store.SymInterface,
-		File: p.filePath,
-		Line: startLine + 1,
-		Doc:  doc,
+		Name:    name,
+		Kind:    store.SymInterface,
+		File:    p.filePath,
+		Line:    startLine + 1,
+		Doc:     doc,
+		Package: p.pkg,
 	})
 
 	depth := 0
@@ -594,11 +603,12 @@ func (p *OdinParser) parseInterface(startLine int, name, doc string, isPrivate b
 				methodName := strings.TrimSpace(trimmed[:idx])
 				if isValidIdentifier(methodName) {
 					p.source.AddSymbol(store.Symbol{
-						Name:   methodName,
-						Kind:   store.SymMethod,
-						File:   p.filePath,
-						Line:   i + 1,
-						Parent: name,
+						Name:    methodName,
+						Kind:    store.SymMethod,
+						File:    p.filePath,
+						Line:    i + 1,
+						Parent:  name,
+						Package: p.pkg,
 					})
 				}
 			}
@@ -618,11 +628,12 @@ func (p *OdinParser) parseInterface(startLine int, name, doc string, isPrivate b
 func (p *OdinParser) parseUnion(startLine int, name, doc string, isPrivate bool) int {
 	_ = isPrivate
 	p.source.AddSymbol(store.Symbol{
-		Name: name,
-		Kind: store.SymInterface,
-		File: p.filePath,
-		Line: startLine + 1,
-		Doc:  doc,
+		Name:    name,
+		Kind:    store.SymInterface,
+		File:    p.filePath,
+		Line:    startLine + 1,
+		Doc:     doc,
+		Package: p.pkg,
 	})
 	unionIdx := len(p.source.Symbols) - 1
 
@@ -661,11 +672,12 @@ func (p *OdinParser) parseUnion(startLine int, name, doc string, isPrivate bool)
 			cleanName := strings.TrimSpace(trimmed)
 			if cleanName != "" {
 				p.source.AddSymbol(store.Symbol{
-					Name:   cleanName,
-					Kind:   store.SymField,
-					File:   p.filePath,
-					Line:   i + 1,
-					Parent: name,
+					Name:    cleanName,
+					Kind:    store.SymField,
+					File:    p.filePath,
+					Line:    i + 1,
+					Parent:  name,
+					Package: p.pkg,
 				})
 
 				// Relationship: Union variant "is a" member of the union
@@ -716,6 +728,11 @@ func (p *OdinParser) parseProc(startLine int, doc string, isPrivate bool) int {
 	}
 
 	parent := p.inferParent(name, params)
+	// If no struct parent, use package as parent for global functions to ensure unique qualified names.
+	finalParent := parent
+	if finalParent == "" {
+		finalParent = p.pkg
+	}
 
 	lineCount := 1
 	complexity := 1
@@ -746,8 +763,9 @@ func (p *OdinParser) parseProc(startLine int, doc string, isPrivate bool) int {
 	callerName := name
 	if parent != "" {
 		callerName = parent + "." + name
-	} else if p.pkg != "" {
-		callerName = p.pkg + "." + name
+	}
+	if p.pkg != "" {
+		callerName = p.pkg + "." + callerName
 	}
 
 	p.source.AddSymbol(store.Symbol{
@@ -756,12 +774,16 @@ func (p *OdinParser) parseProc(startLine int, doc string, isPrivate bool) int {
 		File:       p.filePath,
 		Line:       startLine + 1,
 		Doc:        doc,
-		Parent:     parent,
+		Parent:     parent, // Keep original struct parent for UI if any
+		Package:    p.pkg,
 		Params:     params,
 		Returns:    returns,
 		LineCount:  lineCount,
 		Complexity: complexity,
 	})
+	// Record the qualified name in a internal-ish way or just use Parent.
+	// Actually, if we want to be consistent with Go parser, we might want to NOT use package prefix for local calls.
+	// But Odin has packages too.
 
 	for _, bline := range bodyLines {
 		matches := reCallExpr.FindAllStringSubmatch(bline, -1)

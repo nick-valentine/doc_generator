@@ -2,17 +2,21 @@ package main
 
 import (
 	"bytes"
+	"doc_generator/pkg/diagram"
 	"doc_generator/pkg/generators"
 	"doc_generator/pkg/store"
 	"flag"
 	"fmt"
 	"io/fs"
 	"os"
-	"os/exec"
 	"path"
 	"path/filepath"
 	"plugin"
+	"runtime"
+	"sort"
 	"strings"
+	"sync"
+	"sync/atomic"
 
 	"github.com/pelletier/go-toml/v2"
 )
@@ -26,6 +30,13 @@ type Config struct {
 		Format    string `toml:"format"`
 		Directory string `toml:"directory"`
 	} `toml:"output"`
+}
+
+type DiagramJob struct {
+	DotContent  string
+	PumlContent string
+	PngPath     string
+	PostRun     func()
 }
 
 func main() {
@@ -114,12 +125,66 @@ func main() {
 		_ = os.MkdirAll(out.Directory, 0755)
 	}
 
-	// Generate the static call graph and import graph images
-	generateCallGraphs(&source, outputDirs)
-	generateImportGraph(&source, outputDirs)
-	generateFullProgramGraph(&source, outputDirs)
-	generateRelationsGraph(&source, outputDirs)
-	generateTypeGraphs(&source, outputDirs)
+	// Dynamic Diagram Provider and Parallel Rendering Threadpool
+	provider := diagram.GetBestProvider()
+	if provider != nil {
+		fmt.Printf("Using diagram provider: %s\n", provider.Name())
+		var jobs []DiagramJob
+		generateCallGraphs(&source, outputDirs, &jobs)
+		generateImportGraph(&source, outputDirs, &jobs)
+		generateFullProgramGraph(&source, outputDirs, &jobs)
+		generateRelationsGraph(&source, outputDirs, &jobs)
+		generateTypeGraphs(&source, outputDirs, &jobs)
+		generateSequenceDiagrams(&source, outputDirs, &jobs)
+		generateTimingDiagrams(&source, outputDirs, &jobs)
+
+		fmt.Printf("Generating %d diagrams concurrently...\n", len(jobs))
+
+		numWorkers := runtime.NumCPU()
+		if numWorkers > len(jobs) {
+			numWorkers = len(jobs)
+		}
+
+		jobsChan := make(chan DiagramJob, len(jobs))
+		for _, job := range jobs {
+			jobsChan <- job
+		}
+		close(jobsChan)
+
+		var completedCount int32
+		totalJobs := int32(len(jobs))
+
+		var wg sync.WaitGroup
+		for i := 0; i < numWorkers; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				for job := range jobsChan {
+					var content string
+					if provider.Name() == "PlantUML" && job.PumlContent != "" {
+						content = job.PumlContent
+					} else {
+						content = job.DotContent
+					}
+					err := provider.Generate(content, job.PngPath)
+					if err != nil {
+						fmt.Fprintf(os.Stderr, "Warning: failed to generate diagram %s: %v\n", job.PngPath, err)
+					} else if job.PostRun != nil {
+						job.PostRun()
+					}
+					
+					current := atomic.AddInt32(&completedCount, 1)
+					if current%100 == 0 || current == totalJobs {
+						fmt.Printf("Progress: %d/%d diagrams generated (%.1f%%)\n", current, totalJobs, float64(current)/float64(totalJobs)*100)
+					}
+				}
+			}()
+		}
+		wg.Wait()
+		fmt.Println("Concurrently generated diagrams successfully.")
+	} else {
+		fmt.Println("Warning: No diagram provider (dot or plantuml) found in PATH. Skipping diagram generation.")
+	}
 
 	generatorsList, err := loadGeneratorPlugins()
 	if err != nil {
@@ -282,7 +347,7 @@ func loadGeneratorPlugins() ([]LoadedGenerator, error) {
 }
 
 // generateCallGraphs compiles static PNG call graphs for all methods/functions using the local Graphviz 'dot' utility.
-func generateCallGraphs(source *store.Source, outputDirs []string) {
+func generateCallGraphs(source *store.Source, outputDirs []string, jobs *[]DiagramJob) {
 	if len(outputDirs) == 0 {
 		return
 	}
@@ -344,7 +409,6 @@ func generateCallGraphs(source *store.Source, outputDirs []string) {
 		}
 
 		cleanKey := strings.ReplaceAll(key, ".", "_")
-		dotPath := filepath.Join(imagesDir, fmt.Sprintf("%s_call_graph.dot", cleanKey))
 		pngPath := filepath.Join(imagesDir, fmt.Sprintf("%s_call_graph.png", cleanKey))
 
 		var dot bytes.Buffer
@@ -373,18 +437,61 @@ func generateCallGraphs(source *store.Source, outputDirs []string) {
 
 		dot.WriteString("}\n")
 
-		_ = os.WriteFile(dotPath, dot.Bytes(), 0644)
+		// Native PlantUML MindMap representation
+		var puml bytes.Buffer
+		puml.WriteString("@startmindmap\n")
+		puml.WriteString(fmt.Sprintf("* \"%s\"\n", key))
 
-		cmd := exec.Command("dot", "-Tpng", "-o", pngPath, dotPath)
-		_ = cmd.Run()
+		visitedCallersMap := make(map[string]bool)
+		var renderCallers func(node string, depth int)
+		renderCallers = func(node string, depth int) {
+			if depth >= 5 || visitedCallersMap[node] {
+				return
+			}
+			visitedCallersMap[node] = true
+			callers := source.GetCallers(node)
+			for _, caller := range callers {
+				prefix := strings.Repeat("-", depth+2)
+				puml.WriteString(fmt.Sprintf("%s \"%s\"\n", prefix, caller))
+				renderCallers(caller, depth+1)
+			}
+		}
+		renderCallers(key, 0)
 
-		_ = os.Remove(dotPath)
-		writeGraphHTMLToAll(fmt.Sprintf("%s_call.html", cleanKey), fmt.Sprintf("%s Call Graph", key), fmt.Sprintf("../images/%s_call_graph.png", cleanKey), outputDirs)
+		visitedCalleesMap := make(map[string]bool)
+		var renderCallees func(node string, depth int)
+		renderCallees = func(node string, depth int) {
+			if depth >= 5 || visitedCalleesMap[node] {
+				return
+			}
+			visitedCalleesMap[node] = true
+			callees := source.GetCallees(node)
+			for _, callee := range callees {
+				prefix := strings.Repeat("+", depth+2)
+				puml.WriteString(fmt.Sprintf("%s \"%s\"\n", prefix, callee))
+				renderCallees(callee, depth+1)
+			}
+		}
+		renderCallees(key, 0)
+
+		puml.WriteString("@endmindmap\n")
+
+		// Create unique closures to capture key and cleanKey properly
+		func(k, ck, dContent, pContent string) {
+			*jobs = append(*jobs, DiagramJob{
+				DotContent:  dContent,
+				PumlContent: pContent,
+				PngPath:     pngPath,
+				PostRun: func() {
+					writeGraphHTMLToAll(fmt.Sprintf("%s_call.html", ck), fmt.Sprintf("%s Call Graph", k), fmt.Sprintf("../images/%s_call_graph.png", ck), outputDirs)
+				},
+			})
+		}(key, cleanKey, dot.String(), puml.String())
 	}
 }
 
 // generateImportGraph compiles a visual package/file import relationship graph.
-func generateImportGraph(source *store.Source, outputDirs []string) {
+func generateImportGraph(source *store.Source, outputDirs []string, jobs *[]DiagramJob) {
 	if len(outputDirs) == 0 {
 		return
 	}
@@ -402,7 +509,6 @@ func generateImportGraph(source *store.Source, outputDirs []string) {
 		return
 	}
 
-	dotPath := filepath.Join(imagesDir, "imports_graph.dot")
 	pngPath := filepath.Join(imagesDir, "imports_graph.png")
 
 	var dot bytes.Buffer
@@ -418,24 +524,32 @@ func generateImportGraph(source *store.Source, outputDirs []string) {
 
 	dot.WriteString("}\n")
 
-	_ = os.WriteFile(dotPath, dot.Bytes(), 0644)
+	var puml bytes.Buffer
+	puml.WriteString("@startuml\n")
+	for _, imp := range imports {
+		fileBase := filepath.Base(imp.File)
+		puml.WriteString(fmt.Sprintf("[%s] --> [%s]\n", fileBase, imp.Name))
+	}
+	puml.WriteString("@enduml\n")
 
-	cmd := exec.Command("dot", "-Tpng", "-o", pngPath, dotPath)
-	_ = cmd.Run()
-
-	_ = os.Remove(dotPath)
-	writeGraphHTMLToAll("imports.html", "Import Dependency Graph", "../images/imports_graph.png", outputDirs)
+	*jobs = append(*jobs, DiagramJob{
+		DotContent:  dot.String(),
+		PumlContent: puml.String(),
+		PngPath:     pngPath,
+		PostRun: func() {
+			writeGraphHTMLToAll("imports.html", "Import Dependency Graph", "../images/imports_graph.png", outputDirs)
+		},
+	})
 }
 
 // generateFullProgramGraph compiles a visual callee graph of the entire program starting from main.
-func generateFullProgramGraph(source *store.Source, outputDirs []string) {
+func generateFullProgramGraph(source *store.Source, outputDirs []string, jobs *[]DiagramJob) {
 	if len(outputDirs) == 0 {
 		return
 	}
 	imagesDir := filepath.Join(outputDirs[0], "images")
 	_ = os.MkdirAll(imagesDir, 0755)
 
-	dotPath := filepath.Join(imagesDir, "program_graph.dot")
 	pngPath := filepath.Join(imagesDir, "program_graph.png")
 
 	type edge struct{ From, To string }
@@ -475,24 +589,46 @@ func generateFullProgramGraph(source *store.Source, outputDirs []string) {
 
 	dot.WriteString("}\n")
 
-	_ = os.WriteFile(dotPath, dot.Bytes(), 0644)
+	var puml bytes.Buffer
+	puml.WriteString("@startwbs\n")
+	puml.WriteString("+ \"main\"\n")
 
-	cmd := exec.Command("dot", "-Tpng", "-o", pngPath, dotPath)
-	_ = cmd.Run()
+	visitedWBS := make(map[string]bool)
+	var renderWBS func(node string, depth int)
+	renderWBS = func(node string, depth int) {
+		if visitedWBS[node] {
+			return
+		}
+		visitedWBS[node] = true
+		callees := source.GetCallees(node)
+		for _, callee := range callees {
+			prefix := strings.Repeat("+", depth+1)
+			puml.WriteString(fmt.Sprintf("%s \"%s\"\n", prefix, callee))
+			renderWBS(callee, depth+1)
+		}
+	}
+	renderWBS("main", 1)
 
-	_ = os.Remove(dotPath)
-	writeGraphHTMLToAll("program.html", "Full Program Callee Graph", "../images/program_graph.png", outputDirs)
+	puml.WriteString("@endwbs\n")
+
+	*jobs = append(*jobs, DiagramJob{
+		DotContent:  dot.String(),
+		PumlContent: puml.String(),
+		PngPath:     pngPath,
+		PostRun: func() {
+			writeGraphHTMLToAll("program.html", "Full Program Callee Graph", "../images/program_graph.png", outputDirs)
+		},
+	})
 }
 
 // generateRelationsGraph compiles a visual type relationship diagram (implements, embeds, composition).
-func generateRelationsGraph(source *store.Source, outputDirs []string) {
+func generateRelationsGraph(source *store.Source, outputDirs []string, jobs *[]DiagramJob) {
 	if len(outputDirs) == 0 {
 		return
 	}
 	imagesDir := filepath.Join(outputDirs[0], "images")
 	_ = os.MkdirAll(imagesDir, 0755)
 
-	dotPath := filepath.Join(imagesDir, "relations_graph.dot")
 	pngPath := filepath.Join(imagesDir, "relations_graph.png")
 
 	var dot bytes.Buffer
@@ -542,7 +678,6 @@ func generateRelationsGraph(source *store.Source, outputDirs []string) {
 
 		// Embedding / Composition Relationships
 		for _, f := range fields {
-			// Find if field type matches a parsed struct
 			cleanType := strings.Trim(f.Type, "*[]")
 			if idx := strings.LastIndex(cleanType, "."); idx != -1 {
 				cleanType = cleanType[idx+1:]
@@ -578,12 +713,300 @@ func generateRelationsGraph(source *store.Source, outputDirs []string) {
 
 	dot.WriteString("}\n")
 
-	_ = os.WriteFile(dotPath, dot.Bytes(), 0644)
+	// Native PlantUML Class Diagram
+	var puml bytes.Buffer
+	puml.WriteString("@startuml\n")
+	puml.WriteString("skinparam classAttributeIconSize 0\n")
+	for _, it := range interfaces {
+		puml.WriteString(fmt.Sprintf("interface %s {\n", it.Name))
+		puml.WriteString("}\n")
+	}
+	for _, s := range structs {
+		puml.WriteString(fmt.Sprintf("class %s {\n", s.Name))
+		fields := source.GetStructFields(s.Name)
+		for _, f := range fields {
+			cleanType := strings.ReplaceAll(f.Type, "{", "[")
+			cleanType = strings.ReplaceAll(cleanType, "}", "]")
+			puml.WriteString(fmt.Sprintf("    +%s : %s\n", f.Name, cleanType))
+		}
+		methods := source.GetStructMethods(s.Name)
+		for _, m := range methods {
+			puml.WriteString(fmt.Sprintf("    +%s()\n", m.Name))
+		}
+		puml.WriteString("}\n")
+	}
 
-	cmd := exec.Command("dot", "-Tpng", "-o", pngPath, dotPath)
-	_ = cmd.Run()
+	renderedPumlRelations := make(map[string]bool)
+	for _, s := range structs {
+		fields := source.GetStructFields(s.Name)
+		methods := source.GetStructMethods(s.Name)
 
-	writeGraphHTMLToAll("relations.html", "Type Relationships Graph", "../images/relations_graph.png", outputDirs)
+		for _, m := range methods {
+			if m.Name == "Parse" {
+				rel := fmt.Sprintf("%s ..|> Parser : implements\n", s.Name)
+				if !renderedPumlRelations[rel] {
+					renderedPumlRelations[rel] = true
+					puml.WriteString(rel)
+				}
+			}
+			if m.Name == "Generate" {
+				rel := fmt.Sprintf("%s ..|> Generator : implements\n", s.Name)
+				if !renderedPumlRelations[rel] {
+					renderedPumlRelations[rel] = true
+					puml.WriteString(rel)
+				}
+			}
+		}
+
+		for _, f := range fields {
+			cleanType := strings.Trim(f.Type, "*[]")
+			if idx := strings.LastIndex(cleanType, "."); idx != -1 {
+				cleanType = cleanType[idx+1:]
+			}
+			isStruct := false
+			for _, other := range structs {
+				if other.Name == cleanType {
+					isStruct = true
+					break
+				}
+			}
+			if isStruct {
+				if f.Name == f.Type || strings.HasSuffix(f.Type, f.Name) {
+					rel := fmt.Sprintf("%s *-- %s : embeds\n", s.Name, cleanType)
+					if !renderedPumlRelations[rel] {
+						renderedPumlRelations[rel] = true
+						puml.WriteString(rel)
+					}
+				} else {
+					rel := fmt.Sprintf("%s o-- %s : composed of\n", s.Name, cleanType)
+					if !renderedPumlRelations[rel] {
+						renderedPumlRelations[rel] = true
+						puml.WriteString(rel)
+					}
+				}
+			}
+		}
+	}
+	puml.WriteString("@enduml\n")
+
+	*jobs = append(*jobs, DiagramJob{
+		DotContent:  dot.String(),
+		PumlContent: puml.String(),
+		PngPath:     pngPath,
+		PostRun: func() {
+			writeGraphHTMLToAll("relations.html", "Type Relationships Graph", "../images/relations_graph.png", outputDirs)
+		},
+	})
+}
+
+// generateSequenceDiagrams compiles a visual sequence diagram for each function showing its call interactions.
+func generateSequenceDiagrams(source *store.Source, outputDirs []string, jobs *[]DiagramJob) {
+	if len(outputDirs) == 0 {
+		return
+	}
+	imagesDir := filepath.Join(outputDirs[0], "images")
+	_ = os.MkdirAll(imagesDir, 0755)
+
+	processed := make(map[string]bool)
+	var keys []string
+	for _, c := range source.Calls {
+		if !processed[c.Caller] {
+			processed[c.Caller] = true
+			keys = append(keys, c.Caller)
+		}
+		if !processed[c.Callee] {
+			processed[c.Callee] = true
+			keys = append(keys, c.Callee)
+		}
+	}
+
+	for _, key := range keys {
+		level1Callers := source.GetCallers(key)
+		level1Callees := source.GetCallees(key)
+
+		if len(level1Callers) == 0 && len(level1Callees) == 0 {
+			continue
+		}
+
+		// Collect Level 2 callers
+		level2Callers := make(map[string][]string)
+		for _, l1 := range level1Callers {
+			level2Callers[l1] = source.GetCallers(l1)
+		}
+
+		// Collect Level 2 callees
+		level2Callees := make(map[string][]string)
+		for _, l1 := range level1Callees {
+			level2Callees[l1] = source.GetCallees(l1)
+		}
+
+		cleanKey := strings.ReplaceAll(key, ".", "_")
+		pngPath := filepath.Join(imagesDir, fmt.Sprintf("%s_sequence.png", cleanKey))
+
+		aliases := make(map[string]string)
+		aliasIndex := 0
+		getAlias := func(name string) string {
+			if alias, ok := aliases[name]; ok {
+				return alias
+			}
+			aliasIndex++
+			alias := fmt.Sprintf("P%d", aliasIndex)
+			aliases[name] = alias
+			return alias
+		}
+
+		focusAlias := getAlias(key)
+
+		// Register Level 1 and 2 callers/callees aliases
+		for _, l1 := range level1Callers {
+			_ = getAlias(l1)
+			for _, l2 := range level2Callers[l1] {
+				_ = getAlias(l2)
+			}
+		}
+		for _, l1 := range level1Callees {
+			_ = getAlias(l1)
+			for _, l2 := range level2Callees[l1] {
+				_ = getAlias(l2)
+			}
+		}
+
+		var puml bytes.Buffer
+		puml.WriteString("@startuml\n")
+		puml.WriteString("skinparam ParticipantPadding 10\n")
+		puml.WriteString("skinparam BoxPadding 10\n\n")
+
+		puml.WriteString(fmt.Sprintf("participant \"%s\" as %s\n", key, focusAlias))
+
+		var orderedAliases []string
+		for name, alias := range aliases {
+			if alias != focusAlias {
+				orderedAliases = append(orderedAliases, name)
+			}
+		}
+		sort.Strings(orderedAliases)
+		for _, name := range orderedAliases {
+			puml.WriteString(fmt.Sprintf("participant \"%s\" as %s\n", name, aliases[name]))
+		}
+		puml.WriteString("\n")
+
+		// Render Level 2 -> Level 1 -> Focus calls
+		for _, l1 := range level1Callers {
+			l1Alias := getAlias(l1)
+			l2List := level2Callers[l1]
+			if len(l2List) > 0 {
+				for _, l2 := range l2List {
+					l2Alias := getAlias(l2)
+					puml.WriteString(fmt.Sprintf("%s -> %s : calls\n", l2Alias, l1Alias))
+				}
+			}
+			puml.WriteString(fmt.Sprintf("%s -> %s : calls\n", l1Alias, focusAlias))
+		}
+
+		puml.WriteString(fmt.Sprintf("activate %s\n", focusAlias))
+
+		// Render Focus -> Level 1 -> Level 2 callee flows
+		for _, l1 := range level1Callees {
+			l1Alias := getAlias(l1)
+			puml.WriteString(fmt.Sprintf("%s -> %s : calls\n", focusAlias, l1Alias))
+			puml.WriteString(fmt.Sprintf("activate %s\n", l1Alias))
+
+			l2List := level2Callees[l1]
+			for _, l2 := range l2List {
+				l2Alias := getAlias(l2)
+				puml.WriteString(fmt.Sprintf("%s -> %s : calls\n", l1Alias, l2Alias))
+				puml.WriteString(fmt.Sprintf("activate %s\n", l2Alias))
+				puml.WriteString(fmt.Sprintf("%s --> %s : return\n", l2Alias, l1Alias))
+				puml.WriteString(fmt.Sprintf("deactivate %s\n", l2Alias))
+			}
+
+			puml.WriteString(fmt.Sprintf("%s --> %s : return\n", l1Alias, focusAlias))
+			puml.WriteString(fmt.Sprintf("deactivate %s\n", l1Alias))
+		}
+
+		puml.WriteString(fmt.Sprintf("deactivate %s\n", focusAlias))
+		puml.WriteString("@enduml\n")
+
+		func(k, ck, pContent string) {
+			*jobs = append(*jobs, DiagramJob{
+				DotContent:  "",
+				PumlContent: pContent,
+				PngPath:     pngPath,
+				PostRun: func() {
+					writeGraphHTMLToAll(fmt.Sprintf("%s_sequence.html", ck), fmt.Sprintf("%s Sequence Diagram", k), fmt.Sprintf("../images/%s_sequence.png", ck), outputDirs)
+				},
+			})
+		}(key, cleanKey, puml.String())
+	}
+}
+
+// generateTimingDiagrams compiles robust timing diagrams representing the lifecycle of structs.
+func generateTimingDiagrams(source *store.Source, outputDirs []string, jobs *[]DiagramJob) {
+	if len(outputDirs) == 0 {
+		return
+	}
+	imagesDir := filepath.Join(outputDirs[0], "images")
+	_ = os.MkdirAll(imagesDir, 0755)
+
+	var structs []store.Symbol
+	for _, sym := range source.Symbols {
+		if sym.Kind == store.SymStruct {
+			structs = append(structs, sym)
+		}
+	}
+
+	for _, s := range structs {
+		methods := source.GetStructMethods(s.Name)
+		hasStateChange := false
+		for _, m := range methods {
+			name := strings.ToLower(m.Name)
+			if strings.Contains(name, "init") || strings.Contains(name, "parse") || strings.Contains(name, "generate") || strings.Contains(name, "run") || strings.Contains(name, "close") || strings.Contains(name, "stop") {
+				hasStateChange = true
+				break
+			}
+		}
+
+		if !hasStateChange {
+			continue
+		}
+
+		pngPath := filepath.Join(imagesDir, fmt.Sprintf("%s_timing.png", s.Name))
+
+		var puml bytes.Buffer
+		puml.WriteString("@startuml\n")
+		puml.WriteString(fmt.Sprintf("robust \"%s Lifecycle\" as LS\n", s.Name))
+		puml.WriteString("\n@0\nLS is Uninitialized\n")
+
+		time := 1
+		for _, m := range methods {
+			name := strings.ToLower(m.Name)
+			if strings.Contains(name, "init") {
+				puml.WriteString(fmt.Sprintf("\n@%d\nLS is Initializing : %s()\n", time, m.Name))
+				time += 2
+				puml.WriteString(fmt.Sprintf("\n@%d\nLS is Ready\n", time))
+				time += 2
+			} else if strings.Contains(name, "parse") || strings.Contains(name, "generate") || strings.Contains(name, "run") {
+				puml.WriteString(fmt.Sprintf("\n@%d\nLS is Active : %s()\n", time, m.Name))
+				time += 3
+				puml.WriteString(fmt.Sprintf("\n@%d\nLS is Ready\n", time))
+				time += 2
+			} else if strings.Contains(name, "close") || strings.Contains(name, "stop") {
+				puml.WriteString(fmt.Sprintf("\n@%d\nLS is Closed : %s()\n", time, m.Name))
+			}
+		}
+		puml.WriteString("@enduml\n")
+
+		func(structName, pContent string) {
+			*jobs = append(*jobs, DiagramJob{
+				DotContent:  "",
+				PumlContent: pContent,
+				PngPath:     pngPath,
+				PostRun: func() {
+					writeGraphHTMLToAll(fmt.Sprintf("%s_timing.html", structName), fmt.Sprintf("%s Lifecycle Timing", structName), fmt.Sprintf("../images/%s_timing.png", structName), outputDirs)
+				},
+			})
+		}(s.Name, puml.String())
+	}
 }
 
 // writeGraphHTML creates a premium standalone HTML wrapper for displaying a large Graphviz visualization.
@@ -696,7 +1119,7 @@ func writeGraphHTML(outputPath, title, imageRelPath string) error {
 }
 
 // generateTypeGraphs compiles static PNG type relationship graphs for each struct/interface.
-func generateTypeGraphs(source *store.Source, outputDirs []string) {
+func generateTypeGraphs(source *store.Source, outputDirs []string, jobs *[]DiagramJob) {
 	if len(outputDirs) == 0 {
 		return
 	}
@@ -714,9 +1137,9 @@ func generateTypeGraphs(source *store.Source, outputDirs []string) {
 	}
 
 	for _, s := range structs {
-		dotPath := filepath.Join(imagesDir, fmt.Sprintf("%s_type_graph.dot", s.Name))
-		pngPath := filepath.Join(imagesDir, fmt.Sprintf("%s_type_graph.png", s.Name))
-		htmlName := fmt.Sprintf("%s_type.html", s.Name)
+		sCopy := s // Capture loop variable
+		pngPath := filepath.Join(imagesDir, fmt.Sprintf("%s_type_graph.png", sCopy.Name))
+		htmlName := fmt.Sprintf("%s_type.html", sCopy.Name)
 
 		var dot bytes.Buffer
 		dot.WriteString("digraph G {\n")
@@ -725,10 +1148,10 @@ func generateTypeGraphs(source *store.Source, outputDirs []string) {
 		dot.WriteString("    edge [fontname=\"Helvetica\", fontsize=9];\n")
 
 		// Highlight focal struct node
-		dot.WriteString(fmt.Sprintf("    \"%s\" [fillcolor=\"#818CF8\", fontcolor=\"white\", style=\"filled,rounded,bold\"];\n", s.Name))
+		dot.WriteString(fmt.Sprintf("    \"%s\" [fillcolor=\"#818CF8\", fontcolor=\"white\", style=\"filled,rounded,bold\"];\n", sCopy.Name))
 
-		fields := source.GetStructFields(s.Name)
-		methods := source.GetStructMethods(s.Name)
+		fields := source.GetStructFields(sCopy.Name)
+		methods := source.GetStructMethods(sCopy.Name)
 
 		renderedRelations := make(map[string]bool)
 
@@ -736,7 +1159,7 @@ func generateTypeGraphs(source *store.Source, outputDirs []string) {
 		for _, m := range methods {
 			if m.Name == "Parse" {
 				dot.WriteString("    \"Parser\" [fillcolor=\"#ECFDF5\", color=\"#10B981\", fontcolor=\"#064E3B\", style=\"filled,rounded,dashed\"];\n")
-				rel := fmt.Sprintf("    \"%s\" -> \"Parser\" [arrowhead=onormal, style=dashed, color=\"#10B981\", label=\"implements\"];\n", s.Name)
+				rel := fmt.Sprintf("    \"%s\" -> \"Parser\" [arrowhead=onormal, style=dashed, color=\"#10B981\", label=\"implements\"];\n", sCopy.Name)
 				if !renderedRelations[rel] {
 					renderedRelations[rel] = true
 					dot.WriteString(rel)
@@ -744,7 +1167,7 @@ func generateTypeGraphs(source *store.Source, outputDirs []string) {
 			}
 			if m.Name == "Generate" {
 				dot.WriteString("    \"Generator\" [fillcolor=\"#ECFDF5\", color=\"#10B981\", fontcolor=\"#064E3B\", style=\"filled,rounded,dashed\"];\n")
-				rel := fmt.Sprintf("    \"%s\" -> \"Generator\" [arrowhead=onormal, style=dashed, color=\"#10B981\", label=\"implements\"];\n", s.Name)
+				rel := fmt.Sprintf("    \"%s\" -> \"Generator\" [arrowhead=onormal, style=dashed, color=\"#10B981\", label=\"implements\"];\n", sCopy.Name)
 				if !renderedRelations[rel] {
 					renderedRelations[rel] = true
 					dot.WriteString(rel)
@@ -769,13 +1192,13 @@ func generateTypeGraphs(source *store.Source, outputDirs []string) {
 
 			if isStruct {
 				if f.Name == f.Type || strings.HasSuffix(f.Type, f.Name) {
-					rel := fmt.Sprintf("    \"%s\" -> \"%s\" [arrowhead=empty, style=solid, color=\"#818CF8\", label=\"embeds\"];\n", s.Name, cleanType)
+					rel := fmt.Sprintf("    \"%s\" -> \"%s\" [arrowhead=empty, style=solid, color=\"#818CF8\", label=\"embeds\"];\n", sCopy.Name, cleanType)
 					if !renderedRelations[rel] {
 						renderedRelations[rel] = true
 						dot.WriteString(rel)
 					}
 				} else {
-					rel := fmt.Sprintf("    \"%s\" -> \"%s\" [arrowhead=diamond, style=solid, color=\"#F59E0B\", label=\"composed of\"];\n", s.Name, cleanType)
+					rel := fmt.Sprintf("    \"%s\" -> \"%s\" [arrowhead=diamond, style=solid, color=\"#F59E0B\", label=\"composed of\"];\n", sCopy.Name, cleanType)
 					if !renderedRelations[rel] {
 						renderedRelations[rel] = true
 						dot.WriteString(rel)
@@ -785,19 +1208,87 @@ func generateTypeGraphs(source *store.Source, outputDirs []string) {
 		}
 
 		dot.WriteString("}\n")
-		_ = os.WriteFile(dotPath, dot.Bytes(), 0644)
 
-		cmd := exec.Command("dot", "-Tpng", "-o", pngPath, dotPath)
-		_ = cmd.Run()
-		_ = os.Remove(dotPath)
+		// Native PlantUML Class Diagram representation
+		var puml bytes.Buffer
+		puml.WriteString("@startuml\n")
+		puml.WriteString("skinparam classAttributeIconSize 0\n")
+		puml.WriteString(fmt.Sprintf("class %s {\n", sCopy.Name))
+		for _, f := range fields {
+			cleanType := strings.ReplaceAll(f.Type, "{", "[")
+			cleanType = strings.ReplaceAll(cleanType, "}", "]")
+			puml.WriteString(fmt.Sprintf("    +%s : %s\n", f.Name, cleanType))
+		}
+		for _, m := range methods {
+			puml.WriteString(fmt.Sprintf("    +%s()\n", m.Name))
+		}
+		puml.WriteString("}\n")
 
-		writeGraphHTMLToAll(htmlName, fmt.Sprintf("%s Type Relationship Graph", s.Name), fmt.Sprintf("../images/%s_type_graph.png", s.Name), outputDirs)
+		renderedPumlRelations := make(map[string]bool)
+		for _, m := range methods {
+			if m.Name == "Parse" {
+				puml.WriteString("interface Parser\n")
+				rel := fmt.Sprintf("%s ..|> Parser : implements\n", sCopy.Name)
+				if !renderedPumlRelations[rel] {
+					renderedPumlRelations[rel] = true
+					puml.WriteString(rel)
+				}
+			}
+			if m.Name == "Generate" {
+				puml.WriteString("interface Generator\n")
+				rel := fmt.Sprintf("%s ..|> Generator : implements\n", sCopy.Name)
+				if !renderedPumlRelations[rel] {
+					renderedPumlRelations[rel] = true
+					puml.WriteString(rel)
+				}
+			}
+		}
+
+		for _, f := range fields {
+			cleanType := strings.Trim(f.Type, "*[]")
+			if idx := strings.LastIndex(cleanType, "."); idx != -1 {
+				cleanType = cleanType[idx+1:]
+			}
+			isStruct := false
+			for _, other := range structs {
+				if other.Name == cleanType {
+					isStruct = true
+					break
+				}
+			}
+			if isStruct {
+				puml.WriteString(fmt.Sprintf("class %s\n", cleanType))
+				if f.Name == f.Type || strings.HasSuffix(f.Type, f.Name) {
+					rel := fmt.Sprintf("%s *-- %s : embeds\n", sCopy.Name, cleanType)
+					if !renderedPumlRelations[rel] {
+						renderedPumlRelations[rel] = true
+						puml.WriteString(rel)
+					}
+				} else {
+					rel := fmt.Sprintf("%s o-- %s : composed of\n", sCopy.Name, cleanType)
+					if !renderedPumlRelations[rel] {
+						renderedPumlRelations[rel] = true
+						puml.WriteString(rel)
+					}
+				}
+			}
+		}
+		puml.WriteString("@enduml\n")
+
+		*jobs = append(*jobs, DiagramJob{
+			DotContent:  dot.String(),
+			PumlContent: puml.String(),
+			PngPath:     pngPath,
+			PostRun: func() {
+				writeGraphHTMLToAll(htmlName, fmt.Sprintf("%s Type Relationship Graph", sCopy.Name), fmt.Sprintf("../images/%s_type_graph.png", sCopy.Name), outputDirs)
+			},
+		})
 	}
 
 	for _, s := range interfaces {
-		dotPath := filepath.Join(imagesDir, fmt.Sprintf("%s_type_graph.dot", s.Name))
-		pngPath := filepath.Join(imagesDir, fmt.Sprintf("%s_type_graph.png", s.Name))
-		htmlName := fmt.Sprintf("%s_type.html", s.Name)
+		sCopy := s // Capture loop variable
+		pngPath := filepath.Join(imagesDir, fmt.Sprintf("%s_type_graph.png", sCopy.Name))
+		htmlName := fmt.Sprintf("%s_type.html", sCopy.Name)
 
 		var dot bytes.Buffer
 		dot.WriteString("digraph G {\n")
@@ -806,28 +1297,46 @@ func generateTypeGraphs(source *store.Source, outputDirs []string) {
 		dot.WriteString("    edge [fontname=\"Helvetica\", fontsize=9];\n")
 
 		// Highlight focal interface node
-		dot.WriteString(fmt.Sprintf("    \"%s\" [fillcolor=\"#ECFDF5\", color=\"#10B981\", fontcolor=\"#064E3B\", style=\"filled,rounded,dashed,bold\"];\n", s.Name))
+		dot.WriteString(fmt.Sprintf("    \"%s\" [fillcolor=\"#ECFDF5\", color=\"#10B981\", fontcolor=\"#064E3B\", style=\"filled,rounded,dashed,bold\"];\n", sCopy.Name))
 
 		// Find structs that implement this interface
 		for _, other := range structs {
 			methods := source.GetStructMethods(other.Name)
 			for _, m := range methods {
-				if (s.Name == "Parser" && m.Name == "Parse") || (s.Name == "Generator" && m.Name == "Generate") {
+				if (sCopy.Name == "Parser" && m.Name == "Parse") || (sCopy.Name == "Generator" && m.Name == "Generate") {
 					dot.WriteString(fmt.Sprintf("    \"%s\" [fillcolor=\"#EEF2FF\", color=\"#818CF8\", fontcolor=\"#312E81\", style=\"filled,rounded\"];\n", other.Name))
-					dot.WriteString(fmt.Sprintf("    \"%s\" -> \"%s\" [arrowhead=onormal, style=dashed, color=\"#10B981\", label=\"implements\"];\n", other.Name, s.Name))
+					dot.WriteString(fmt.Sprintf("    \"%s\" -> \"%s\" [arrowhead=onormal, style=dashed, color=\"#10B981\", label=\"implements\"];\n", other.Name, sCopy.Name))
 				}
 			}
 		}
 
 		dot.WriteString("}\n")
-		_ = os.WriteFile(dotPath, dot.Bytes(), 0644)
 
-		cmd := exec.Command("dot", "-Tpng", "-o", pngPath, dotPath)
-		_ = cmd.Run()
-		copyImageToAll(pngPath, filepath.Base(pngPath), outputDirs)
-		_ = os.Remove(dotPath)
+		// Native PlantUML representation for Interface
+		var puml bytes.Buffer
+		puml.WriteString("@startuml\n")
+		puml.WriteString("skinparam classAttributeIconSize 0\n")
+		puml.WriteString(fmt.Sprintf("interface %s\n", sCopy.Name))
+		for _, other := range structs {
+			methods := source.GetStructMethods(other.Name)
+			for _, m := range methods {
+				if (sCopy.Name == "Parser" && m.Name == "Parse") || (sCopy.Name == "Generator" && m.Name == "Generate") {
+					puml.WriteString(fmt.Sprintf("class %s\n", other.Name))
+					puml.WriteString(fmt.Sprintf("%s ..|> %s : implements\n", other.Name, sCopy.Name))
+				}
+			}
+		}
+		puml.WriteString("@enduml\n")
 
-		writeGraphHTMLToAll(htmlName, fmt.Sprintf("%s Interface Implementations", s.Name), fmt.Sprintf("../images/%s_type_graph.png", s.Name), outputDirs)
+		*jobs = append(*jobs, DiagramJob{
+			DotContent:  dot.String(),
+			PumlContent: puml.String(),
+			PngPath:     pngPath,
+			PostRun: func() {
+				copyImageToAll(pngPath, filepath.Base(pngPath), outputDirs)
+				writeGraphHTMLToAll(htmlName, fmt.Sprintf("%s Interface Implementations", sCopy.Name), fmt.Sprintf("../images/%s_type_graph.png", sCopy.Name), outputDirs)
+			},
+		})
 	}
 }
 

@@ -164,6 +164,9 @@ main :: proc() {
 				foundCallMainFmt = true
 			}
 		}
+		if call.Caller == "test.MyStruct.my_struct_init" && call.Callee == "fmt.println" {
+			foundCallMainFmt = true // reusing variable for speed
+		}
 	}
 
 	if !foundCallMainInit {

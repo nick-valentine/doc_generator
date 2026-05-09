@@ -50,6 +50,8 @@ type Symbol struct {
 	Audience      []string
 	// Compatibility lists the target system namespaces (e.g. C, RUST, JS).
 	Compatibility []string
+	// Package holds the package name where the symbol is defined.
+	Package       string
 	// Parent holds the name of the parent struct for fields and methods.
 	Parent        string
 	// Params holds the parameters of a function or method.

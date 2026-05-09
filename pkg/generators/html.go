@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"doc_generator/pkg/store"
@@ -31,6 +32,50 @@ func (hg *HTMLGenerator) Generate(source *store.Source, outputDir string) error 
 			globals = append(globals, v)
 		}
 	}
+
+	// Group files by package name
+	packageMap := make(map[string][]string)
+	for _, f := range source.Files {
+		pkgName := "main"
+		for _, sym := range source.Symbols {
+			if sym.File == f.Name && sym.Package != "" {
+				pkgName = sym.Package
+				break
+			}
+		}
+		if pkgName == "main" {
+			dir := filepath.Dir(f.Name)
+			if dir != "." && dir != "" {
+				pkgName = filepath.Base(dir)
+			}
+		}
+		packageMap[pkgName] = append(packageMap[pkgName], f.Name)
+	}
+
+	var sortedPkgs []string
+	for pkg := range packageMap {
+		sortedPkgs = append(sortedPkgs, pkg)
+	}
+	sort.Strings(sortedPkgs)
+
+	for _, pkg := range sortedPkgs {
+		sort.Strings(packageMap[pkg])
+	}
+
+	// Gather unique, alphabetically sorted imports
+	var uniqueImports []string
+	importMap := make(map[string]bool)
+	for _, imp := range imports {
+		name := strings.Trim(imp.Name, `"`+`'`+`"`)
+		if name == "" {
+			continue
+		}
+		if !importMap[name] {
+			importMap[name] = true
+			uniqueImports = append(uniqueImports, name)
+		}
+	}
+	sort.Strings(uniqueImports)
 
 	var buf bytes.Buffer
 
@@ -450,6 +495,48 @@ func (hg *HTMLGenerator) Generate(source *store.Source, outputDir string) error 
             padding: 0;
             color: #E2E8F0;
         }
+
+        /* Inline Diagrams */
+        .inline-diagram {
+            margin-top: 1.5rem;
+            background: rgba(0, 0, 0, 0.2);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 1rem;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            overflow: hidden;
+            max-height: 300px;
+        }
+
+        .inline-diagram:hover {
+            border-color: var(--accent-primary);
+            background: rgba(99, 102, 241, 0.05);
+        }
+
+        .inline-diagram img {
+            max-width: 100%;
+            height: auto;
+            filter: brightness(0.9) contrast(1.1);
+            transition: transform 0.3s;
+        }
+
+        .inline-diagram:hover img {
+            transform: scale(1.02);
+            filter: brightness(1);
+        }
+
+        .diagram-label {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            margin-bottom: 0.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+        }
     </style>
 </head>
 <body>
@@ -469,21 +556,22 @@ func (hg *HTMLGenerator) Generate(source *store.Source, outputDir string) error 
         </div>
 
         <div class="nav-section">
-            <div class="nav-section-title">Files Index</div>
+            <div class="nav-section-title">Packages & Files</div>
 `)
-	for _, f := range source.Files {
-		buf.WriteString(fmt.Sprintf(`            <a href="javascript:void(0)" onclick="selectFile('%s')" class="nav-link" style="font-family: monospace; font-size: 0.8rem; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">📄 %s</a>`+"\n", f.Name, f.Name))
+	for _, pkg := range sortedPkgs {
+		buf.WriteString(fmt.Sprintf(`            <div style="margin-bottom: 0.5rem; padding-left: 0.2rem;">
+                <span onclick="filterByPackage('%s')" class="nav-link" style="color: #818CF8; font-weight: 600; display: inline-flex; align-items: center; gap: 0.3rem; cursor: pointer; padding: 0.25rem 0; width: 100%%; box-sizing: border-box; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">📦 %s</span>
+                <div style="padding-left: 0.8rem; border-left: 1px dashed var(--border-color); margin-left: 0.4rem; margin-top: 0.1rem;">`+"\n", pkg, pkg))
+		for _, file := range packageMap[pkg] {
+			baseName := filepath.Base(file)
+			buf.WriteString(fmt.Sprintf(`                    <a href="javascript:void(0)" onclick="selectFile('%s')" class="nav-link" style="font-family: monospace; font-size: 0.8rem; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0.15rem 0;" title="%s">📄 %s</a>`+"\n", file, file, baseName))
+		}
+		buf.WriteString(`                </div>
+            </div>` + "\n")
 	}
 
-	buf.WriteString(`        </div>
 
-        <div class="nav-section">
-            <div class="nav-section-title">Packages</div>
-`)
-	packages := getSymbolsOfKind(source, "package")
-	for _, pkg := range packages {
-		buf.WriteString(fmt.Sprintf(`            <a href="javascript:void(0)" onclick="filterByPackage('%s')" class="nav-link">📦 %s</a>`+"\n", pkg.Name, pkg.Name))
-	}
+
 
 	buf.WriteString(`        </div>
 
@@ -580,47 +668,64 @@ func (hg *HTMLGenerator) Generate(source *store.Source, outputDir string) error 
 	buf.WriteString(`
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; margin-bottom: 3rem;">
             <!-- Module Tree & Imports Card -->
-            <div class="card" id="section-files" style="margin-bottom: 0;">
-                <div class="card-header" style="margin-bottom: 1rem;">
-                    <div class="card-title" style="font-size: 1.2rem;">Module Tree & Import Graphs</div>
-                </div>
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; font-size: 0.85rem; color: var(--text-secondary);">
-                    <div>
-                        <strong style="color: var(--text-primary); display: block; margin-bottom: 0.5rem;">📁 Module Tree</strong>
-                        <ul style="list-style: none; padding-left: 0.5rem; line-height: 1.6; font-family: monospace;">
+            <div class="card" id="section-files" style="margin-bottom: 0; display: flex; flex-direction: column; justify-content: space-between;">
+                <div>
+                    <div class="card-header" style="margin-bottom: 1rem;">
+                        <div class="card-title" style="font-size: 1.2rem;">Module Tree & Import Graphs</div>
+                    </div>
+                    <div style="font-size: 0.85rem; color: var(--text-secondary); max-height: 250px; overflow-y: auto; padding-right: 0.5rem; margin-bottom: 1rem;">
+                        <strong style="color: var(--text-primary); display: block; margin-bottom: 0.75rem;">📁 Module Tree (by Package)</strong>
+                        <ul style="list-style: none; padding-left: 0; line-height: 1.6; font-family: monospace;">
 	`)
-	for _, f := range source.Files {
-		buf.WriteString(fmt.Sprintf(`                            <li><a href="javascript:void(0)" onclick="selectFile('%s')" style="color: var(--text-secondary); text-decoration: none; hover: underline; cursor: pointer;">📄 %s</a></li>`+"\n", f.Name, f.Name))
+
+	for _, pkg := range sortedPkgs {
+		buf.WriteString(fmt.Sprintf(`                            <li style="margin-bottom: 0.75rem;">
+                                <strong style="color: #818CF8; font-size: 0.9rem; display: flex; align-items: center; gap: 0.3rem; cursor: pointer;" onclick="filterByPackage('%s')">📦 %s</strong>
+                                <ul style="list-style: none; padding-left: 1.2rem; margin-top: 0.2rem; border-left: 1px dashed var(--border-color); margin-left: 0.4rem;">`+"\n", pkg, pkg))
+		for _, file := range packageMap[pkg] {
+			baseName := filepath.Base(file)
+			buf.WriteString(fmt.Sprintf(`                                    <li style="margin: 0.15rem 0;"><a href="javascript:void(0)" onclick="selectFile('%s')" style="color: var(--text-secondary); text-decoration: none; display: inline-flex; align-items: center; gap: 0.3rem;" onmouseover="this.style.color='var(--text-primary)'" onmouseout="this.style.color='var(--text-secondary)'">📄 %s</a></li>`+"\n", file, baseName))
+		}
+		buf.WriteString(`                                </ul>
+                            </li>` + "\n")
 	}
+
 	buf.WriteString(`                        </ul>
                     </div>
-                    <div id="section-imports">
-                        <strong style="color: var(--text-primary); display: block; margin-bottom: 0.5rem;">🔗 Imported Packages</strong>
-                        <ul style="list-style: none; padding-left: 0.5rem; line-height: 1.6; font-family: monospace;">
+                </div>
+
+                <div>
+                    <!-- Unique Imported Packages (horizontal inline, less prominent place) -->
+                    <div id="section-imports" style="border-top: 1px solid var(--border-color); padding-top: 0.75rem; margin-top: 0.5rem;">
+                        <strong style="color: var(--text-primary); font-size: 0.8rem; display: block; margin-bottom: 0.4rem;">🔗 Unique Imported Packages</strong>
+                        <div style="display: flex; flex-wrap: wrap; gap: 0.4rem; max-height: 120px; overflow-y: auto;">
 	`)
-	if len(imports) == 0 {
-		buf.WriteString(`                            <li>(None)</li>` + "\n")
+
+	if len(uniqueImports) == 0 {
+		buf.WriteString(`                            <span style="font-size: 0.75rem; color: var(--text-secondary); font-style: italic;">(None)</span>` + "\n")
 	} else {
-		for _, imp := range imports {
-			buf.WriteString(fmt.Sprintf(`                            <li style="color: #818CF8;">📦 %s</li>`+"\n", imp.Name))
+		for _, imp := range uniqueImports {
+			buf.WriteString(fmt.Sprintf(`                            <span style="background: var(--bg-secondary); border: 1px solid var(--border-color); padding: 0.15rem 0.4rem; border-radius: 4px; font-size: 0.75rem; color: #818CF8; font-family: monospace;">%s</span>`+"\n", imp))
 		}
 	}
-	buf.WriteString(`                        </ul>
+
+	buf.WriteString(`                        </div>
                     </div>
-                </div>
-                <div style="margin-top: 1.5rem; border-top: 1px solid var(--border-color); padding-top: 1.5rem; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1.5rem;">
-                    <a href="graphs/imports.html" class="graph-btn" target="_blank">
-                        <span>📊 View Import Dependency Graph</span>
-                        <span class="arrow">↗</span>
-                    </a>
-                    <a href="graphs/program.html" class="graph-btn" target="_blank">
-                        <span>🟢 View Full Program Callee Graph</span>
-                        <span class="arrow">↗</span>
-                    </a>
-                    <a href="graphs/relations.html" class="graph-btn" target="_blank">
-                        <span>🧬 View Type Relationships Graph</span>
-                        <span class="arrow">↗</span>
-                    </a>
+
+                    <div style="margin-top: 1.2rem; border-top: 1px solid var(--border-color); padding-top: 1rem; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1rem;">
+                        <a href="graphs/imports.html" class="graph-btn" target="_blank" style="padding: 0.5rem; font-size: 0.75rem;">
+                            <span>📊 Import Graph</span>
+                            <span class="arrow">↗</span>
+                        </a>
+                        <a href="graphs/program.html" class="graph-btn" target="_blank" style="padding: 0.5rem; font-size: 0.75rem;">
+                            <span>🟢 Callee Graph</span>
+                            <span class="arrow">↗</span>
+                        </a>
+                        <a href="graphs/relations.html" class="graph-btn" target="_blank" style="padding: 0.5rem; font-size: 0.75rem;">
+                            <span>🧬 Type Graph</span>
+                            <span class="arrow">↗</span>
+                        </a>
+                    </div>
                 </div>
             </div>
 
@@ -643,43 +748,63 @@ func (hg *HTMLGenerator) Generate(source *store.Source, outputDir string) error 
                         <tbody>
 	`)
 
-	// Gather all functions/methods to show complexity
-	var metricsFound bool
-	renderMetricRow := func(sym store.Symbol, displayName string) string {
-		metricsFound = true
-		crap := sym.Complexity*sym.Complexity + sym.Complexity
-		status := `<span style="color: #10B981; font-weight: 600;">Good</span>`
-		if crap > 20 || sym.LineCount > 50 {
-			status = `<span style="color: #F59E0B; font-weight: 600;">Complex</span>`
+	// Gather all functions and methods with their computed CRAP scores for sorting
+	type CrapEntry struct {
+		Symbol      store.Symbol
+		DisplayName string
+		CrapScore   int
+	}
+	var crapList []CrapEntry
+	for _, fn := range funcs {
+		crap := fn.Complexity*fn.Complexity + fn.Complexity
+		crapList = append(crapList, CrapEntry{
+			Symbol:      fn,
+			DisplayName: fn.Name + "()",
+			CrapScore:   crap,
+		})
+	}
+	for _, s := range structs {
+		methods := source.GetStructMethods(s.Name)
+		for _, m := range methods {
+			crap := m.Complexity*m.Complexity + m.Complexity
+			crapList = append(crapList, CrapEntry{
+				Symbol:      m,
+				DisplayName: s.Name + "." + m.Name + "()",
+				CrapScore:   crap,
+			})
 		}
-		if crap > 50 {
-			status = `<span style="color: #EF4444; font-weight: 600;">CRITICAL</span>`
-		}
-		anchor := "func-" + sym.Name
-		if sym.Parent != "" {
-			anchor = "struct-" + sym.Parent
-		}
-		return fmt.Sprintf(`                            <tr class="metric-row" data-file="%s">
+	}
+
+	// Sort from most crappy to least crappy
+	sort.Slice(crapList, func(i, j int) bool {
+		return crapList[i].CrapScore > crapList[j].CrapScore
+	})
+
+	if len(crapList) == 0 {
+		buf.WriteString(`                            <tr><td colspan="5" style="text-align: center; padding: 1rem;">No functions or methods found.</td></tr>` + "\n")
+	} else {
+		for _, entry := range crapList {
+			status := `<span style="color: #10B981; font-weight: 600;">Good</span>`
+			if entry.CrapScore > 20 || entry.Symbol.LineCount > 50 {
+				status = `<span style="color: #F59E0B; font-weight: 600;">Complex</span>`
+			}
+			if entry.CrapScore > 50 {
+				status = `<span style="color: #EF4444; font-weight: 600;">CRITICAL</span>`
+			}
+
+			anchor := "func-" + entry.Symbol.Name
+			if entry.Symbol.Parent != "" {
+				anchor = fmt.Sprintf("struct-%s-method-%s", entry.Symbol.Parent, entry.Symbol.Name)
+			}
+
+			buf.WriteString(fmt.Sprintf(`                            <tr class="metric-row" data-file="%s">
                                 <td style="padding: 0.4rem; font-family: monospace; color: var(--text-primary);"><a href="#%s" style="color: inherit; text-decoration: none;">%s</a></td>
                                 <td style="padding: 0.4rem;">%d</td>
                                 <td style="padding: 0.4rem;">%d</td>
                                 <td style="padding: 0.4rem;">%d</td>
                                 <td style="padding: 0.4rem;">%s</td>
-                            </tr>`+"\n", sym.File, anchor, displayName, sym.LineCount, sym.Complexity, crap, status)
-	}
-
-	for _, fn := range funcs {
-		buf.WriteString(renderMetricRow(fn, fn.Name+"()"))
-	}
-	// Add Methods to complexity table
-	for _, s := range structs {
-		methods := source.GetStructMethods(s.Name)
-		for _, m := range methods {
-			buf.WriteString(renderMetricRow(m, s.Name+"."+m.Name+"()"))
+                            </tr>`+"\n", entry.Symbol.File, anchor, entry.DisplayName, entry.Symbol.LineCount, entry.Symbol.Complexity, entry.CrapScore, status))
 		}
-	}
-	if !metricsFound {
-		buf.WriteString(`                            <tr><td colspan="4" style="text-align: center; padding: 1rem;">No functions or methods found.</td></tr>` + "\n")
 	}
 
 	buf.WriteString(`                        </tbody>
@@ -793,6 +918,9 @@ func (hg *HTMLGenerator) Generate(source *store.Source, outputDir string) error 
 			buf.WriteString(fmt.Sprintf(`                        <span class="tag tag-comp">%s</span>`+"\n", comp))
 		}
 
+		buf.WriteString(`                    </div>
+                </div>`)
+
 		fields := source.GetStructFields(s.Name)
 		methods := source.GetStructMethods(s.Name)
 
@@ -843,27 +971,49 @@ func (hg *HTMLGenerator) Generate(source *store.Source, outputDir string) error 
 			}
 		}
 
-		buf.WriteString(fmt.Sprintf(`                    </div>
-                </div>
-                <div class="location">%s (Line %d)</div>`+"\n", s.File, s.Line))
+		buf.WriteString(fmt.Sprintf(`                <div class="location">%s (Line %d)</div>`+"\n", s.File, s.Line))
 
-		if len(relations) > 0 {
-			buf.WriteString(`                <div style="margin: 0.5rem 0 1rem 0; font-size: 0.85rem; color: var(--text-secondary); display: flex; flex-wrap: wrap; gap: 1rem; align-items: center;">` + "\n")
-			for _, rel := range relations {
-				buf.WriteString(fmt.Sprintf(`                    <div style="background: var(--bg-secondary); border: 1px solid var(--border-color); padding: 0.25rem 0.6rem; border-radius: 6px; display: inline-flex; align-items: center; gap: 0.35rem;">%s</div>`+"\n", rel))
+		hasStateChange := false
+		for _, m := range methods {
+			name := strings.ToLower(m.Name)
+			if strings.Contains(name, "init") || strings.Contains(name, "parse") || strings.Contains(name, "generate") || strings.Contains(name, "run") || strings.Contains(name, "close") || strings.Contains(name, "stop") {
+				hasStateChange = true
+				break
 			}
-			buf.WriteString(fmt.Sprintf(`                    <a href="graphs/%s_type.html" class="graph-btn" target="_blank" style="font-size: 0.8rem; padding: 0.25rem 0.6rem; margin-left: auto;">
+		}
+
+		buf.WriteString(`                <div style="margin: 0.5rem 0 1rem 0; font-size: 0.85rem; color: var(--text-secondary); display: flex; flex-wrap: wrap; gap: 1rem; align-items: center;">` + "\n")
+		for _, rel := range relations {
+			buf.WriteString(fmt.Sprintf(`                    <div style="background: var(--bg-secondary); border: 1px solid var(--border-color); padding: 0.25rem 0.6rem; border-radius: 6px; display: inline-flex; align-items: center; gap: 0.35rem;">%s</div>`+"\n", rel))
+		}
+		if hasStateChange {
+			buf.WriteString(fmt.Sprintf(`                    <a href="graphs/%s_timing.html" class="graph-btn" target="_blank" style="font-size: 0.8rem; padding: 0.25rem 0.6rem; margin-left: auto; background: rgba(245, 158, 11, 0.1); border-color: rgba(245, 158, 11, 0.2); color: #F59E0B;">
+                        <span>⏳ View Lifecycle Timing</span>
+                        <span class="arrow">↗</span>
+                    </a>
+                    <a href="graphs/%s_type.html" class="graph-btn" target="_blank" style="font-size: 0.8rem; padding: 0.25rem 0.6rem;">
                         <span>🧬 View Relationship Graph</span>
                         <span class="arrow">↗</span>
-                    </a>`+"\n", s.Name))
-			buf.WriteString(`                </div>` + "\n")
+                    </a>`+"\n", s.Name, s.Name))
 		} else {
-			buf.WriteString(`                <div style="margin: 0.5rem 0 1rem 0; font-size: 0.85rem; color: var(--text-secondary); display: flex; flex-wrap: wrap; gap: 1rem; align-items: center;">` + "\n")
 			buf.WriteString(fmt.Sprintf(`                    <a href="graphs/%s_type.html" class="graph-btn" target="_blank" style="font-size: 0.8rem; padding: 0.25rem 0.6rem; margin-left: auto;">
                         <span>🧬 View Relationship Graph</span>
                         <span class="arrow">↗</span>
                     </a>`+"\n", s.Name))
-			buf.WriteString(`                </div>` + "\n")
+		}
+		buf.WriteString(`                </div>` + "\n")
+
+		// Inline Relationship Diagram
+		buf.WriteString(fmt.Sprintf(`                <div class="diagram-label" style="margin-top: 1.5rem;"><span>🧬 Relationship Diagram</span> <span style="font-size: 0.7rem; opacity: 0.5;">(Click to zoom)</span></div>
+                <div class="inline-diagram" onclick="openLightbox('images/%s_type_graph.png')">
+                    <img src="images/%s_type_graph.png" alt="%s Relationship Graph" onerror="this.parentElement.style.display='none'; this.parentElement.previousElementSibling.style.display='none';">
+                </div>`+"\n", s.Name, s.Name, s.Name))
+
+		if hasStateChange {
+			buf.WriteString(fmt.Sprintf(`                <div class="diagram-label" style="margin-top: 1.5rem;"><span>⏳ Struct Lifecycle Timing Diagram</span> <span style="font-size: 0.7rem; opacity: 0.5;">(Click to zoom)</span></div>
+                <div class="inline-diagram" onclick="openLightbox('images/%s_timing.png')">
+                    <img src="images/%s_timing.png" alt="%s Lifecycle Timing" onerror="this.parentElement.style.display='none'; this.parentElement.previousElementSibling.style.display='none';">
+                </div>`+"\n", s.Name, s.Name, s.Name))
 		}
 
 		if s.Doc != "" {
@@ -902,10 +1052,21 @@ func (hg *HTMLGenerator) Generate(source *store.Source, outputDir string) error 
 				params := renderTypeWithLinks(m.Params, source)
 				returns := renderTypeWithLinks(m.Returns, source)
 				sig := fmt.Sprintf(`<span style="font-family: 'Fira Code', monospace; font-size: 0.95rem; font-weight: 400; color: var(--text-secondary); margin-left: 0.5rem;">%s %s</span>`, params, returns)
-				buf.WriteString(fmt.Sprintf(`                    <div class="element-item">
+				crap := m.Complexity*m.Complexity + m.Complexity
+				var crapBadge string
+				if crap > 50 {
+					crapBadge = fmt.Sprintf(`<span class="tag" style="background: rgba(239, 68, 68, 0.15); color: #EF4444; border: 1px solid rgba(239, 68, 68, 0.3); font-weight: 600;">CRAP: %d (Critical)</span>`, crap)
+				} else if crap > 20 {
+					crapBadge = fmt.Sprintf(`<span class="tag" style="background: rgba(245, 158, 11, 0.15); color: #F59E0B; border: 1px solid rgba(245, 158, 11, 0.3); font-weight: 600;">CRAP: %d (Complex)</span>`, crap)
+				} else {
+					crapBadge = fmt.Sprintf(`<span class="tag" style="background: rgba(16, 185, 129, 0.15); color: #10B981; border: 1px solid rgba(16, 185, 129, 0.3); font-weight: 600;">CRAP: %d</span>`, crap)
+				}
+
+				buf.WriteString(fmt.Sprintf(`                    <div class="element-item" id="struct-%s-method-%s">
                         <div class="element-name">
                             <span>%s%s</span>
-                            <div class="meta-tags">`+"\n", m.Name, sig))
+                            <div class="meta-tags">
+                                %s`+"\n", s.Name, m.Name, m.Name, sig, crapBadge))
 				for _, aud := range m.Audience {
 					buf.WriteString(fmt.Sprintf(`                                <span class="tag tag-aud">%s</span>`+"\n", aud))
 				}
@@ -920,9 +1081,13 @@ func (hg *HTMLGenerator) Generate(source *store.Source, outputDir string) error 
 				}
 
 				methodKey := fmt.Sprintf("%s.%s", s.Name, m.Name)
-				callers := source.GetCallers(methodKey)
-				callees := source.GetCallees(methodKey)
-				cleanKey := strings.ReplaceAll(methodKey, ".", "_")
+				qualifiedKey := methodKey
+				if s.Package != "" {
+					qualifiedKey = s.Package + "." + methodKey
+				}
+				callers := source.GetCallers(qualifiedKey)
+				callees := source.GetCallees(qualifiedKey)
+				cleanKey := strings.ReplaceAll(qualifiedKey, ".", "_")
 
 				if len(callers) > 0 || len(callees) > 0 {
 					buf.WriteString(`                        <div class="call-relations">` + "\n")
@@ -933,6 +1098,12 @@ func (hg *HTMLGenerator) Generate(source *store.Source, outputDir string) error 
 						buf.WriteString(fmt.Sprintf(`                            <div><strong>Callees:</strong> %s</div>`+"\n", strings.Join(callees, ", ")))
 					}
 					buf.WriteString(`                        </div>` + "\n")
+
+					// Inline Call Diagram
+					buf.WriteString(fmt.Sprintf(`                        <div class="inline-diagram" style="max-height: 200px; margin-top: 1rem;" onclick="openLightbox('images/%s_call_graph.png')">
+                            <img src="images/%s_call_graph.png" alt="%s Call Graph" onerror="this.parentElement.style.display='none';">
+                        </div>`+"\n", cleanKey, cleanKey, methodKey))
+
 					buf.WriteString(fmt.Sprintf(`                        <div style="margin-top: 1rem; display: flex; justify-content: flex-end;">
                             <a href="graphs/%s_call.html" class="graph-btn" target="_blank" style="font-size: 0.8rem; padding: 0.25rem 0.6rem;">
                                 <span>🟢 View Call Graph</span>
@@ -994,13 +1165,19 @@ func (hg *HTMLGenerator) Generate(source *store.Source, outputDir string) error 
                     </a>
                 </div>`+"\n", s.Name))
 
-			if s.Doc != "" {
-				cleanDoc := strings.ReplaceAll(strings.TrimSpace(s.Doc), "\n", "<br>")
-				buf.WriteString(fmt.Sprintf(`                <div class="docblock">%s</div>`+"\n", cleanDoc))
-			}
-			buf.WriteString(`            </div>` + "\n")
+		// Inline Interface Diagram
+		buf.WriteString(fmt.Sprintf(`                <div class="diagram-label" style="margin-top: 1.5rem;"><span>📥 Implementation Diagram</span> <span style="font-size: 0.7rem; opacity: 0.5;">(Click to zoom)</span></div>
+                <div class="inline-diagram" onclick="openLightbox('images/%s_type_graph.png')">
+                    <img src="images/%s_type_graph.png" alt="%s Implementation Graph" onerror="this.parentElement.style.display='none'; this.parentElement.previousElementSibling.style.display='none';">
+                </div>`+"\n", s.Name, s.Name, s.Name))
+
+		if s.Doc != "" {
+			cleanDoc := strings.ReplaceAll(strings.TrimSpace(s.Doc), "\n", "<br>")
+			buf.WriteString(fmt.Sprintf(`                <div class="docblock">%s</div>`+"\n", cleanDoc))
 		}
-		buf.WriteString(`        </div>` + "\n")
+		buf.WriteString(`            </div>` + "\n")
+	}
+	buf.WriteString(`        </div>` + "\n")
 	}
 
 	// Global Functions Section
@@ -1011,10 +1188,21 @@ func (hg *HTMLGenerator) Generate(source *store.Source, outputDir string) error 
 		params := renderTypeWithLinks(fn.Params, source)
 		returns := renderTypeWithLinks(fn.Returns, source)
 		sig := fmt.Sprintf(`<span style="font-family: 'Fira Code', monospace; font-size: 1rem; font-weight: 400; color: var(--text-secondary); margin-left: 0.5rem;">%s %s</span>`, params, returns)
+		crap := fn.Complexity*fn.Complexity + fn.Complexity
+		var crapBadge string
+		if crap > 50 {
+			crapBadge = fmt.Sprintf(`<span class="tag" style="background: rgba(239, 68, 68, 0.15); color: #EF4444; border: 1px solid rgba(239, 68, 68, 0.3); font-weight: 600;">CRAP: %d (Critical)</span>`, crap)
+		} else if crap > 20 {
+			crapBadge = fmt.Sprintf(`<span class="tag" style="background: rgba(245, 158, 11, 0.15); color: #F59E0B; border: 1px solid rgba(245, 158, 11, 0.3); font-weight: 600;">CRAP: %d (Complex)</span>`, crap)
+		} else {
+			crapBadge = fmt.Sprintf(`<span class="tag" style="background: rgba(16, 185, 129, 0.15); color: #10B981; border: 1px solid rgba(16, 185, 129, 0.3); font-weight: 600;">CRAP: %d</span>`, crap)
+		}
+
 		buf.WriteString(fmt.Sprintf(`            <div class="card" id="func-%s" data-file="%s">
                 <div class="card-header">
                     <div class="card-title">%s%s</div>
-                    <div class="meta-tags">`+"\n", fn.Name, fn.File, fn.Name, sig))
+                    <div class="meta-tags">
+                        %s`+"\n", fn.Name, fn.File, fn.Name, sig, crapBadge))
 		for _, aud := range fn.Audience {
 			buf.WriteString(fmt.Sprintf(`                        <span class="tag tag-aud">%s</span>`+"\n", aud))
 		}
@@ -1030,9 +1218,16 @@ func (hg *HTMLGenerator) Generate(source *store.Source, outputDir string) error 
 			buf.WriteString(fmt.Sprintf(`                <div class="docblock">%s</div>`+"\n", cleanDoc))
 		}
 
-		callers := source.GetCallers(fn.Name)
-		callees := source.GetCallees(fn.Name)
-		cleanKey := strings.ReplaceAll(fn.Name, ".", "_")
+		fnKey := fn.Name
+		if fn.Parent != "" {
+			fnKey = fn.Parent + "." + fn.Name
+		}
+		if fn.Package != "" {
+			fnKey = fn.Package + "." + fnKey
+		}
+		callers := source.GetCallers(fnKey)
+		callees := source.GetCallees(fnKey)
+		cleanKey := strings.ReplaceAll(fnKey, ".", "_")
 
 		if len(callers) > 0 || len(callees) > 0 {
 			buf.WriteString(`                <div class="call-relations">` + "\n")
@@ -1043,12 +1238,27 @@ func (hg *HTMLGenerator) Generate(source *store.Source, outputDir string) error 
 				buf.WriteString(fmt.Sprintf(`                    <div><strong>Callees:</strong> %s</div>`+"\n", strings.Join(callees, ", ")))
 			}
 			buf.WriteString(`                </div>` + "\n")
-			buf.WriteString(fmt.Sprintf(`                <div style="margin-top: 1rem; display: flex; justify-content: flex-end;">
+
+			// Inline Call Diagram & Sequence Diagram
+			buf.WriteString(fmt.Sprintf(`                <div class="diagram-label" style="margin-top: 1.5rem;"><span>🟢 Call Graph</span></div>
+                <div class="inline-diagram" style="max-height: 250px;" onclick="openLightbox('images/%s_call_graph.png')">
+                    <img src="images/%s_call_graph.png" alt="%s Call Graph" onerror="this.parentElement.style.display='none'; this.parentElement.previousElementSibling.style.display='none';">
+                </div>
+                <div class="diagram-label" style="margin-top: 1.5rem;"><span>📋 Sequence Diagram</span></div>
+                <div class="inline-diagram" style="max-height: 250px;" onclick="openLightbox('images/%s_sequence.png')">
+                    <img src="images/%s_sequence.png" alt="%s Sequence Diagram" onerror="this.parentElement.style.display='none'; this.parentElement.previousElementSibling.style.display='none';">
+                </div>`+"\n", cleanKey, cleanKey, fn.Name, cleanKey, cleanKey, fn.Name))
+
+			buf.WriteString(fmt.Sprintf(`                <div style="margin-top: 1rem; display: flex; justify-content: flex-end; gap: 0.5rem;">
+                    <a href="graphs/%s_sequence.html" class="graph-btn" target="_blank" style="font-size: 0.8rem; padding: 0.25rem 0.6rem; background: rgba(16, 185, 129, 0.1); border-color: rgba(16, 185, 129, 0.2); color: #10B981;">
+                        <span>📋 View Sequence Diagram</span>
+                        <span class="arrow">↗</span>
+                    </a>
                     <a href="graphs/%s_call.html" class="graph-btn" target="_blank" style="font-size: 0.8rem; padding: 0.25rem 0.6rem;">
                         <span>🟢 View Call Graph</span>
                         <span class="arrow">↗</span>
                     </a>
-                </div>`+"\n", cleanKey))
+                </div>`+"\n", cleanKey, cleanKey))
 		}
 
 		buf.WriteString(`            </div>` + "\n")

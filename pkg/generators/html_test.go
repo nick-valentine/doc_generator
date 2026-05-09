@@ -2,6 +2,8 @@ package generators
 
 import (
 	"doc_generator/pkg/store"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -24,10 +26,22 @@ func TestHTMLGenerator_Generate(t *testing.T) {
 	}
 
 	hg := &HTMLGenerator{}
-	htmlContent, err := hg.Generate(source)
+	tempDir, err := os.MkdirTemp("", "html_test_*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	err = hg.Generate(source, tempDir)
 	if err != nil {
 		t.Fatalf("expected no HTML generation error, got %v", err)
 	}
+
+	contentBytes, err := os.ReadFile(filepath.Join(tempDir, "index.html"))
+	if err != nil {
+		t.Fatalf("expected index.html to be written, got %v", err)
+	}
+	htmlContent := string(contentBytes)
 
 	// Verify crucial HTML structures and symbols are present
 	if !strings.Contains(htmlContent, "<!DOCTYPE html>") {
