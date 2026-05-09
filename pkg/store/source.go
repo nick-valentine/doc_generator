@@ -1,6 +1,12 @@
 package store
 
-import "strings"
+import (
+	"bufio"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+)
 
 // Parser represents an input plugin that parses a file into a Source in-memory database.
 type Parser interface {
@@ -60,12 +66,16 @@ type Symbol struct {
 	Returns       string
 	// Type holds the type of a field or variable.
 	Type          string
+	// Value holds the constant or default value of a variable/constant.
+	Value         string
 	// LineCount is the number of lines of a function/method.
 	LineCount     int
 	// Complexity is the estimated cognitive/cyclomatic complexity.
 	Complexity    int
 	// Relations stores types that this symbol inherits from, implements, or is composed of.
 	Relations     []string
+	// Coverage holds the statement coverage percentage if a coverage report is present.
+	Coverage      *float64
 }
 
 // File represents a registered source file inside our parsed database.
@@ -255,3 +265,203 @@ func (s *Source) GetStructMethods(structName string) []Symbol {
 	}
 	return result
 }
+
+// CoverBlock represents a statement block in a cover profile report.
+type CoverBlock struct {
+	File      string
+	StartLine int
+	EndLine   int
+	NumStmt   int
+	Count     int
+}
+
+// ParseCoverage parses any supported coverage profile (Go cover profile, LCOV, or CCOV).
+func ParseCoverage(path string) ([]CoverBlock, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	var blocks []CoverBlock
+	scanner := bufio.NewScanner(file)
+
+	// Read first few lines to detect format
+	var lines []string
+	isGoCover := false
+	isLCOV := false
+	isCCOV := false
+
+	for scanner.Scan() {
+		lines = append(lines, scanner.Text())
+		if len(lines) >= 10 {
+			break
+		}
+	}
+
+	for _, line := range lines {
+		if strings.HasPrefix(line, "mode:") {
+			isGoCover = true
+			break
+		}
+		if strings.HasPrefix(line, "SF:") || strings.HasPrefix(line, "DA:") {
+			isLCOV = true
+			break
+		}
+	}
+
+	// If neither GoCover nor LCOV is detected, check if it's CCOV or check file extension
+	if !isGoCover && !isLCOV {
+		ext := strings.ToLower(filepath.Ext(path))
+		if ext == ".ccov" {
+			isCCOV = true
+		} else if ext == ".info" || ext == ".lcov" {
+			isLCOV = true
+		} else {
+			// fallback check of content
+			for _, line := range lines {
+				if strings.Contains(line, ":") {
+					parts := strings.Split(line, ":")
+					if len(parts) >= 2 {
+						if _, err := strconv.Atoi(parts[1]); err == nil {
+							isCCOV = true
+							break
+						}
+					}
+				}
+			}
+		}
+	}
+
+	currentFile := ""
+	parseLine := func(line string) {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			return
+		}
+
+		if isGoCover {
+			if strings.HasPrefix(line, "mode:") {
+				return
+			}
+			parts := strings.Fields(line)
+			if len(parts) != 3 {
+				return
+			}
+			filePart := parts[0]
+			numStmt, _ := strconv.Atoi(parts[1])
+			count, _ := strconv.Atoi(parts[2])
+
+			colonIdx := strings.LastIndex(filePart, ":")
+			if colonIdx == -1 {
+				return
+			}
+			fileName := filePart[:colonIdx]
+			rangePart := filePart[colonIdx+1:]
+
+			commaIdx := strings.Index(rangePart, ",")
+			if commaIdx == -1 {
+				return
+			}
+			startPart := rangePart[:commaIdx]
+			endPart := rangePart[commaIdx+1:]
+
+			startDot := strings.Index(startPart, ".")
+			if startDot != -1 {
+				startPart = startPart[:startDot]
+			}
+			endDot := strings.Index(endPart, ".")
+			if endDot != -1 {
+				endPart = endPart[:endDot]
+			}
+
+			startLine, _ := strconv.Atoi(startPart)
+			endLine, _ := strconv.Atoi(endPart)
+
+			blocks = append(blocks, CoverBlock{
+				File:      fileName,
+				StartLine: startLine,
+				EndLine:   endLine,
+				NumStmt:   numStmt,
+				Count:     count,
+			})
+		} else if isLCOV {
+			if strings.HasPrefix(line, "SF:") {
+				currentFile = strings.TrimPrefix(line, "SF:")
+			} else if strings.HasPrefix(line, "DA:") {
+				parts := strings.Split(strings.TrimPrefix(line, "DA:"), ",")
+				if len(parts) >= 2 && currentFile != "" {
+					lineNum, _ := strconv.Atoi(parts[0])
+					count, _ := strconv.Atoi(parts[1])
+					blocks = append(blocks, CoverBlock{
+						File:      currentFile,
+						StartLine: lineNum,
+						EndLine:   lineNum,
+						NumStmt:   1,
+						Count:     count,
+					})
+				}
+			}
+		} else if isCCOV {
+			parts := strings.Split(line, ":")
+			if len(parts) >= 2 {
+				fileName := parts[0]
+				lineNum, err := strconv.Atoi(parts[1])
+				if err == nil {
+					count := 1
+					if len(parts) >= 3 {
+						if c, err := strconv.Atoi(parts[2]); err == nil {
+							count = c
+						}
+					}
+					blocks = append(blocks, CoverBlock{
+						File:      fileName,
+						StartLine: lineNum,
+						EndLine:   lineNum,
+						NumStmt:   1,
+						Count:     count,
+					})
+				}
+			}
+		}
+	}
+
+	for _, line := range lines {
+		parseLine(line)
+	}
+
+	for scanner.Scan() {
+		parseLine(scanner.Text())
+	}
+
+	return blocks, scanner.Err()
+}
+
+// ApplyCoverage calculates and attaches statement coverage percentages to functions and methods.
+func (s *Source) ApplyCoverage(blocks []CoverBlock) {
+	for i := range s.Symbols {
+		sym := &s.Symbols[i]
+		if sym.Kind != SymFunction && sym.Kind != SymMethod {
+			continue
+		}
+
+		var totalStmts int
+		var coveredStmts int
+		for _, block := range blocks {
+			// Match file (accept relative path match or exact match)
+			if (block.File == sym.File || strings.HasSuffix(block.File, "/"+sym.File) || strings.HasSuffix(sym.File, "/"+block.File)) &&
+				block.StartLine >= sym.Line && block.EndLine <= sym.Line+sym.LineCount {
+				totalStmts += block.NumStmt
+				if block.Count > 0 {
+					coveredStmts += block.NumStmt
+				}
+			}
+		}
+
+		if totalStmts > 0 {
+			cov := (float64(coveredStmts) / float64(totalStmts)) * 100.0
+			sym.Coverage = &cov
+		}
+	}
+}
+

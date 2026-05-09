@@ -1,0 +1,27 @@
+[ArrayTable append] 128 rounds, 1024 bytes processed in 935465 ns		136830.346 rounds/s, 1.044 MiB/s		7569 allocated, 7411 freed, 3968 peak allocated, 158 currently allocated
+[ArrayTable append] 256 rounds, 2048 bytes processed in 21079 ns		12144788.652 rounds/s, 92.657 MiB/s		15635 allocated, 15475 freed, 8064 peak allocated, 160 currently allocated
+[ArrayTable append] 512 rounds, 4096 bytes processed in 33252 ns		15397570.071 rounds/s, 117.474 MiB/s		31891 allocated, 31731 freed, 16256 peak allocated, 160 currently allocated
+[ArrayTable find_by_id] 128 rounds, 1024 bytes processed in 613861 ns		208516.260 rounds/s, 1.591 MiB/s		7598 allocated, 7423 freed, 3968 peak allocated, 175 currently allocated
+[ArrayTable find_by_id] 256 rounds, 2048 bytes processed in 54232 ns		4720460.245 rounds/s, 36.014 MiB/s		7598 allocated, 7423 freed, 3968 peak allocated, 175 currently allocated
+[ArrayTable find_by_id] 512 rounds, 4096 bytes processed in 92934 ns		5509286.160 rounds/s, 42.033 MiB/s		7598 allocated, 7423 freed, 3968 peak allocated, 175 currently allocated
+[BloomFilter] 128 rounds, 2048 bytes processed in 309731 ns		413261.830 rounds/s, 6.306 MiB/s		231 allocated, 97 freed, 134 peak allocated, 285 currently allocated
+[BloomFilter] 256 rounds, 4096 bytes processed in 93445 ns		2739579.432 rounds/s, 41.803 MiB/s		232 allocated, 97 freed, 135 peak allocated, 287 currently allocated
+[BloomFilter] 512 rounds, 8192 bytes processed in 179917 ns		2845756.654 rounds/s, 43.423 MiB/s		232 allocated, 97 freed, 135 peak allocated, 287 currently allocated
+[ResourceMap insert] 128 rounds, 1024 bytes processed in 2913134 ns		43938.933 rounds/s, 0.335 MiB/s		52021 allocated, 51860 freed, 30241 peak allocated, 161 currently allocated
+[ResourceMap insert] 256 rounds, 2048 bytes processed in 1048056 ns		244261.757 rounds/s, 1.864 MiB/s		103094 allocated, 102932 freed, 60062 peak allocated, 162 currently allocated
+[ResourceMap insert] 512 rounds, 4096 bytes processed in 2027022 ns		252587.293 rounds/s, 1.927 MiB/s		204854 allocated, 204692 freed, 119710 peak allocated, 162 currently allocated
+[SparseTable append] 128 rounds, 1024 bytes processed in 2646935 ns		48357.818 rounds/s, 0.369 MiB/s		4439 allocated, 4278 freed, 4160 peak allocated, 161 currently allocated
+[SparseTable append] 256 rounds, 2048 bytes processed in 71244 ns		3593285.049 rounds/s, 27.415 MiB/s		6521 allocated, 6358 freed, 6240 peak allocated, 163 currently allocated
+[SparseTable append] 512 rounds, 4096 bytes processed in 125465 ns		4080819.352 rounds/s, 31.134 MiB/s		10681 allocated, 10518 freed, 10400 peak allocated, 163 currently allocated
+[SparseTable find_by_id] 128 rounds, 1024 bytes processed in 557014 ns		229796.738 rounds/s, 1.753 MiB/s		2389 allocated, 2210 freed, 2080 peak allocated, 179 currently allocated
+[SparseTable find_by_id] 256 rounds, 2048 bytes processed in 91462 ns		2798976.624 rounds/s, 21.354 MiB/s		2389 allocated, 2210 freed, 2080 peak allocated, 179 currently allocated
+[SparseTable find_by_id] 512 rounds, 4096 bytes processed in 152366 ns		3360329.732 rounds/s, 25.637 MiB/s		2389 allocated, 2210 freed, 2080 peak allocated, 179 currently allocated
+[SparseTree append] 128 rounds, 1024 bytes processed in 4085463 ns		31330.598 rounds/s, 0.239 MiB/s		4528 allocated, 4371 freed, 4256 peak allocated, 157 currently allocated
+[SparseTree append] 256 rounds, 2048 bytes processed in 1040802 ns		245964.170 rounds/s, 1.877 MiB/s		6657 allocated, 6499 freed, 6384 peak allocated, 158 currently allocated
+[SparseTree append] 512 rounds, 4096 bytes processed in 1037506 ns		493491.122 rounds/s, 3.765 MiB/s		10913 allocated, 10755 freed, 10640 peak allocated, 158 currently allocated
+[SparseTree find_by_id] 128 rounds, 1024 bytes processed in 449303 ns		284885.701 rounds/s, 2.174 MiB/s		2430 allocated, 2255 freed, 2128 peak allocated, 175 currently allocated
+[SparseTree find_by_id] 256 rounds, 2048 bytes processed in 168817 ns		1516434.956 rounds/s, 11.569 MiB/s		2430 allocated, 2255 freed, 2128 peak allocated, 175 currently allocated
+[SparseTree find_by_id] 512 rounds, 4096 bytes processed in 191038 ns		2680095.060 rounds/s, 20.448 MiB/s		2430 allocated, 2255 freed, 2128 peak allocated, 175 currently allocated
+[DynamicLightingUpdate] 50 rounds, 0 bytes processed in 34083923 ns		1466.967 rounds/s, 0.000 MiB/s		124399 allocated, 124203 freed, 124064 peak allocated, 196 currently allocated
+[DynamicLightingUpdate] 100 rounds, 0 bytes processed in 32972308 ns		3032.848 rounds/s, 0.000 MiB/s		124399 allocated, 124203 freed, 124064 peak allocated, 196 currently allocated
+[DynamicLightingUpdate] 200 rounds, 0 bytes processed in 56395705 ns		3546.369 rounds/s, 0.000 MiB/s		124399 allocated, 124203 freed, 124064 peak allocated, 196 currently allocated

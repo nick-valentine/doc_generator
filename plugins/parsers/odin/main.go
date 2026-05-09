@@ -396,6 +396,7 @@ func (p *OdinParser) parseAll() {
 					Line: i + 1,
 					Doc:  doc,
 					Type: inferConstType(m[2]),
+					Value: strings.TrimSpace(m[2]),
 				})
 			}
 			i++
@@ -768,9 +769,14 @@ func (p *OdinParser) parseProc(startLine int, doc string, isPrivate bool) int {
 		callerName = p.pkg + "." + callerName
 	}
 
+	kind := store.SymFunction
+	if parent != "" {
+		kind = store.SymMethod
+	}
+
 	p.source.AddSymbol(store.Symbol{
 		Name:       name,
-		Kind:       store.SymFunction,
+		Kind:       kind,
 		File:       p.filePath,
 		Line:       startLine + 1,
 		Doc:        doc,

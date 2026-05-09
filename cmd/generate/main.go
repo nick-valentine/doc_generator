@@ -2,9 +2,11 @@ package main
 
 import (
 	"bytes"
+	"crypto/md5"
 	"doc_generator/pkg/diagram"
 	"doc_generator/pkg/generators"
 	"doc_generator/pkg/store"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io/fs"
@@ -17,11 +19,14 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/pelletier/go-toml/v2"
 )
 
 type Config struct {
+	Concurrency     int    `toml:"concurrency"`
+	DiagramProvider string `toml:"diagram_provider"`
 	Input struct {
 		Directory string   `toml:"directory"`
 		Ignore    []string `toml:"ignore"`
@@ -39,9 +44,15 @@ type DiagramJob struct {
 	PostRun     func()
 }
 
+func getMD5Hash(text string) string {
+	hash := md5.Sum([]byte(text))
+	return fmt.Sprintf("%x", hash)
+}
+
 func main() {
 	configFlag := flag.String("config", "docgen.toml", "Path to TOML configuration file")
 	audienceFlag := flag.String("audience", "", "Filter symbols by audience (e.g. API, INTERNAL, USER, DEVELOPER)")
+	concurrencyFlag := flag.Int("concurrency", 0, "Number of concurrent workers (defaults to number of CPUs or TOML config)")
 	flag.Parse()
 
 	configData, err := os.ReadFile(*configFlag)
@@ -113,6 +124,39 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Look for coverage report
+	coverageFile := ""
+	standardFiles := []string{
+		filepath.Join(config.Input.Directory, "coverage.out"),
+		filepath.Join(config.Input.Directory, "cover.out"),
+		filepath.Join(config.Input.Directory, "coverage.info"),
+		filepath.Join(config.Input.Directory, "lcov.info"),
+		filepath.Join(config.Input.Directory, "coverage.lcov"),
+		filepath.Join(config.Input.Directory, "coverage.ccov"),
+		"coverage.out",
+		"cover.out",
+		"coverage.info",
+		"lcov.info",
+		"coverage.lcov",
+		"coverage.ccov",
+	}
+	for _, f := range standardFiles {
+		if _, err := os.Stat(f); err == nil {
+			coverageFile = f
+			break
+		}
+	}
+	if coverageFile != "" {
+		fmt.Printf("Found code coverage report: %s. Loading metrics...\n", coverageFile)
+		blocks, err := store.ParseCoverage(coverageFile)
+		if err == nil {
+			source.ApplyCoverage(blocks)
+			fmt.Println("Successfully applied code coverage metrics to source symbols.")
+		} else {
+			fmt.Fprintf(os.Stderr, "Warning: failed to parse coverage report: %v\n", err)
+		}
+	}
+
 	// Filter by audience if specified
 	if *audienceFlag != "" {
 		filteredSymbols := source.FilterByAudience(*audienceFlag)
@@ -126,10 +170,21 @@ func main() {
 	}
 
 	// Dynamic Diagram Provider and Parallel Rendering Threadpool
-	provider := diagram.GetBestProvider()
+	var provider diagram.DiagramProvider
+	if config.DiagramProvider != "" {
+		provider = diagram.GetProviderByName(config.DiagramProvider)
+		if provider == nil {
+			fmt.Printf("Warning: Configured diagram provider %q not available, falling back to auto-detection\n", config.DiagramProvider)
+			provider = diagram.GetBestProvider()
+		}
+	} else {
+		provider = diagram.GetBestProvider()
+	}
+
 	if provider != nil {
 		fmt.Printf("Using diagram provider: %s\n", provider.Name())
 		var jobs []DiagramJob
+		inputGenStart := time.Now()
 		generateCallGraphs(&source, outputDirs, &jobs)
 		generateImportGraph(&source, outputDirs, &jobs)
 		generateFullProgramGraph(&source, outputDirs, &jobs)
@@ -137,10 +192,28 @@ func main() {
 		generateTypeGraphs(&source, outputDirs, &jobs)
 		generateSequenceDiagrams(&source, outputDirs, &jobs)
 		generateTimingDiagrams(&source, outputDirs, &jobs)
+		fmt.Printf("Input generation completed in %v. Total jobs: %d.\n", time.Since(inputGenStart), len(jobs))
+
+		type diagramCacheType struct {
+			mu     sync.Mutex
+			Hashes map[string]string
+		}
+		var cache diagramCacheType
+		cache.Hashes = make(map[string]string)
+		cachePath := "docs/diagram_cache.json"
+		if data, err := os.ReadFile(cachePath); err == nil {
+			_ = json.Unmarshal(data, &cache.Hashes)
+		}
 
 		fmt.Printf("Generating %d diagrams concurrently...\n", len(jobs))
 
 		numWorkers := runtime.NumCPU()
+		if *concurrencyFlag > 0 {
+			numWorkers = *concurrencyFlag
+		} else if config.Concurrency > 0 {
+			numWorkers = config.Concurrency
+		}
+
 		if numWorkers > len(jobs) {
 			numWorkers = len(jobs)
 		}
@@ -154,6 +227,7 @@ func main() {
 		var completedCount int32
 		totalJobs := int32(len(jobs))
 
+		startTime := time.Now()
 		var wg sync.WaitGroup
 		for i := 0; i < numWorkers; i++ {
 			wg.Add(1)
@@ -166,21 +240,60 @@ func main() {
 					} else {
 						content = job.DotContent
 					}
+
+					hash := getMD5Hash(content)
+
+					cache.mu.Lock()
+					cachedHash, exists := cache.Hashes[job.PngPath]
+					cache.mu.Unlock()
+
+					_, fileErr := os.Stat(job.PngPath)
+					if exists && fileErr == nil && cachedHash == hash {
+						current := atomic.AddInt32(&completedCount, 1)
+						if current%100 == 0 || current == totalJobs {
+							elapsed := time.Since(startTime).Seconds()
+							rate := 0.0
+							if elapsed > 0 {
+								rate = float64(current) / elapsed
+							}
+							fmt.Printf("Progress: %d/%d diagrams generated (%.1f%%) | %.1f diagrams/sec (cached)\n", current, totalJobs, float64(current)/float64(totalJobs)*100, rate)
+						}
+						continue
+					}
+
 					err := provider.Generate(content, job.PngPath)
 					if err != nil {
 						fmt.Fprintf(os.Stderr, "Warning: failed to generate diagram %s: %v\n", job.PngPath, err)
-					} else if job.PostRun != nil {
-						job.PostRun()
+					} else {
+						cache.mu.Lock()
+						cache.Hashes[job.PngPath] = hash
+						cache.mu.Unlock()
+						if job.PostRun != nil {
+							job.PostRun()
+						}
 					}
 					
 					current := atomic.AddInt32(&completedCount, 1)
 					if current%100 == 0 || current == totalJobs {
-						fmt.Printf("Progress: %d/%d diagrams generated (%.1f%%)\n", current, totalJobs, float64(current)/float64(totalJobs)*100)
+						elapsed := time.Since(startTime).Seconds()
+						rate := 0.0
+						if elapsed > 0 {
+							rate = float64(current) / elapsed
+						}
+						fmt.Printf("Progress: %d/%d diagrams generated (%.1f%%) | %.1f diagrams/sec\n", current, totalJobs, float64(current)/float64(totalJobs)*100, rate)
 					}
 				}
 			}()
 		}
 		wg.Wait()
+
+		cache.mu.Lock()
+		if data, err := json.MarshalIndent(cache.Hashes, "", "  "); err == nil {
+			_ = os.MkdirAll("docs", 0755)
+			_ = os.WriteFile(cachePath, data, 0644)
+		}
+		cache.mu.Unlock()
+
 		fmt.Println("Concurrently generated diagrams successfully.")
 	} else {
 		fmt.Println("Warning: No diagram provider (dot or plantuml) found in PATH. Skipping diagram generation.")
@@ -590,26 +703,26 @@ func generateFullProgramGraph(source *store.Source, outputDirs []string, jobs *[
 	dot.WriteString("}\n")
 
 	var puml bytes.Buffer
-	puml.WriteString("@startwbs\n")
-	puml.WriteString("+ \"main\"\n")
+	puml.WriteString("@startmindmap\n")
+	puml.WriteString("* \"main\"\n")
 
-	visitedWBS := make(map[string]bool)
-	var renderWBS func(node string, depth int)
-	renderWBS = func(node string, depth int) {
-		if visitedWBS[node] {
+	visitedMap := make(map[string]bool)
+	var renderMap func(node string, depth int)
+	renderMap = func(node string, depth int) {
+		if visitedMap[node] {
 			return
 		}
-		visitedWBS[node] = true
+		visitedMap[node] = true
 		callees := source.GetCallees(node)
 		for _, callee := range callees {
 			prefix := strings.Repeat("+", depth+1)
 			puml.WriteString(fmt.Sprintf("%s \"%s\"\n", prefix, callee))
-			renderWBS(callee, depth+1)
+			renderMap(callee, depth+1)
 		}
 	}
-	renderWBS("main", 1)
+	renderMap("main", 1)
 
-	puml.WriteString("@endwbs\n")
+	puml.WriteString("@endmindmap\n")
 
 	*jobs = append(*jobs, DiagramJob{
 		DotContent:  dot.String(),
@@ -940,7 +1053,7 @@ func generateSequenceDiagrams(source *store.Source, outputDirs []string, jobs *[
 	}
 }
 
-// generateTimingDiagrams compiles robust timing diagrams representing the lifecycle of structs.
+// generateTimingDiagrams compiles robust timing diagrams representing the lifecycle of structs in program context.
 func generateTimingDiagrams(source *store.Source, outputDirs []string, jobs *[]DiagramJob) {
 	if len(outputDirs) == 0 {
 		return
@@ -970,30 +1083,57 @@ func generateTimingDiagrams(source *store.Source, outputDirs []string, jobs *[]D
 			continue
 		}
 
+		// 1. Find constructors for this struct
+		var constructorName string
+		var creatorName string = "main" // default creator context
+		
+		for _, sym := range source.Symbols {
+			if sym.Kind == store.SymFunction {
+				nameLower := strings.ToLower(sym.Name)
+				structLower := strings.ToLower(s.Name)
+				if strings.Contains(nameLower, "new") && strings.Contains(nameLower, structLower) {
+					constructorName = sym.Name
+					break
+				}
+			}
+		}
+
+		if constructorName != "" {
+			callers := source.GetCallers(constructorName)
+			if len(callers) > 0 {
+				creatorName = callers[0]
+			}
+		} else {
+			constructorName = fmt.Sprintf("New%s()", s.Name)
+		}
+
 		pngPath := filepath.Join(imagesDir, fmt.Sprintf("%s_timing.png", s.Name))
 
 		var puml bytes.Buffer
 		puml.WriteString("@startuml\n")
-		puml.WriteString(fmt.Sprintf("robust \"%s Lifecycle\" as LS\n", s.Name))
-		puml.WriteString("\n@0\nLS is Uninitialized\n")
+		puml.WriteString("robust \"Program Execution\" as PE\n")
+		puml.WriteString(fmt.Sprintf("robust \"Struct '%s' Lifecycle\" as SL\n\n", s.Name))
+
+		puml.WriteString("@0\n")
+		puml.WriteString("PE is Running : main()\n")
+		puml.WriteString("SL is Uninitialized\n")
 
 		time := 1
+		puml.WriteString(fmt.Sprintf("\n@%d\n", time))
+		puml.WriteString(fmt.Sprintf("PE is Creating : %s()\n", creatorName))
+		puml.WriteString(fmt.Sprintf("SL is Instantiated : via %s()\n", constructorName))
+
+		time += 2
 		for _, m := range methods {
-			name := strings.ToLower(m.Name)
-			if strings.Contains(name, "init") {
-				puml.WriteString(fmt.Sprintf("\n@%d\nLS is Initializing : %s()\n", time, m.Name))
-				time += 2
-				puml.WriteString(fmt.Sprintf("\n@%d\nLS is Ready\n", time))
-				time += 2
-			} else if strings.Contains(name, "parse") || strings.Contains(name, "generate") || strings.Contains(name, "run") {
-				puml.WriteString(fmt.Sprintf("\n@%d\nLS is Active : %s()\n", time, m.Name))
-				time += 3
-				puml.WriteString(fmt.Sprintf("\n@%d\nLS is Ready\n", time))
-				time += 2
-			} else if strings.Contains(name, "close") || strings.Contains(name, "stop") {
-				puml.WriteString(fmt.Sprintf("\n@%d\nLS is Closed : %s()\n", time, m.Name))
-			}
+			puml.WriteString(fmt.Sprintf("\n@%d\n", time))
+			puml.WriteString(fmt.Sprintf("PE is Running : %s()\n", creatorName))
+			puml.WriteString(fmt.Sprintf("SL is Active : %s()\n", m.Name))
+			time += 2
 		}
+
+		puml.WriteString(fmt.Sprintf("\n@%d\n", time))
+		puml.WriteString("PE is Running : main()\n")
+		puml.WriteString("SL is Terminated : garbage collected\n")
 		puml.WriteString("@enduml\n")
 
 		func(structName, pContent string) {

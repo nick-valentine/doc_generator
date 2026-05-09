@@ -1,10 +1,11 @@
 package generators
 
 import (
-	"bytes"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -12,80 +13,137 @@ import (
 )
 
 // HTMLGenerator is an output plugin that implements store.Generator.
-// It formats the parsed files, structs, fields, and methods into a premium self-contained HTML document.
+// It formats parsed files, structs, fields, and methods into a premium multi-page HTML dashboard.
 type HTMLGenerator struct{}
 
-// Generate builds a fully styled, premium, single-page HTML application summarizing all files and symbols, and writes it to outputDir.
-func (hg *HTMLGenerator) Generate(source *store.Source, outputDir string) error {
+// Helper to calculate CRAP index for a symbol based on complexity and optional coverage
+func getCRAPScore(sym store.Symbol) int {
+	C := sym.Complexity
+	if C <= 0 {
+		C = 1
+	}
+	if sym.Coverage != nil {
+		cov := *sym.Coverage / 100.0
+		crap := float64(C*C)*math.Pow(1.0-cov, 3) + float64(C)
+		return int(math.Round(crap))
+	}
+	return C*C + C
+}
+
+// buildSidebar generates a consistent sidebar navigation with relative paths adjusted for depth
+func (hg *HTMLGenerator) buildSidebar(source *store.Source, depth int) string {
+	relPath := ""
+	pagePrefix := "pages/"
+	if depth == 1 {
+		relPath = "../"
+		pagePrefix = ""
+	}
+
+	var sb strings.Builder
+
+	// Dashboard Link
+	sb.WriteString(fmt.Sprintf(`<div class="nav-section">
+        <a href="%sindex.html" class="nav-link" style="font-weight: 600; color: var(--text-primary); display: block; padding: 0.5rem 0.75rem;">📊 Dashboard</a>
+    </div>`+"\n", relPath))
+
 	structs := getSymbolsOfKind(source, store.SymStruct)
 	interfaces := getSymbolsOfKind(source, store.SymInterface)
 	funcs := getSymbolsOfKind(source, store.SymFunction)
-	imports := getSymbolsOfKind(source, store.SymImport)
 
-	var todos []store.Symbol
-	var globals []store.Symbol
-	allVars := getSymbolsOfKind(source, store.SymVariable)
-	for _, v := range allVars {
-		if v.Name == "TODO" {
-			todos = append(todos, v)
-		} else {
-			globals = append(globals, v)
+	// Packages
+	packages := make(map[string]bool)
+	for _, sym := range source.Symbols {
+		pkgName := sym.Package
+		if pkgName == "" {
+			pkgName = "main"
 		}
+		packages[pkgName] = true
 	}
-
-	// Group files by package name
-	packageMap := make(map[string][]string)
-	for _, f := range source.Files {
-		pkgName := "main"
-		for _, sym := range source.Symbols {
-			if sym.File == f.Name && sym.Package != "" {
-				pkgName = sym.Package
-				break
-			}
-		}
-		if pkgName == "main" {
-			dir := filepath.Dir(f.Name)
-			if dir != "." && dir != "" {
-				pkgName = filepath.Base(dir)
-			}
-		}
-		packageMap[pkgName] = append(packageMap[pkgName], f.Name)
-	}
-
 	var sortedPkgs []string
-	for pkg := range packageMap {
-		sortedPkgs = append(sortedPkgs, pkg)
+	for p := range packages {
+		sortedPkgs = append(sortedPkgs, p)
 	}
 	sort.Strings(sortedPkgs)
 
 	for _, pkg := range sortedPkgs {
-		sort.Strings(packageMap[pkg])
+		sb.WriteString(fmt.Sprintf(`<div class="nav-section" style="margin-top: 1rem;">
+            <div class="nav-section-title" style="font-size: 0.75rem; text-transform: uppercase; color: var(--text-secondary); margin-bottom: 0.5rem; font-weight:600;">📦 Package %s</div>`+"\n", pkg))
+		
+		sb.WriteString(fmt.Sprintf(`            <a href="%spkg_%s.html" class="nav-link" style="display: block; padding: 0.25rem 0.75rem; color: var(--text-secondary); text-decoration: none; font-size: 0.9rem; font-weight: 500;">📖 Overview</a>`+"\n", pagePrefix, pkg))
+
+		// Structs under this package
+		hasStructHeader := false
+		for _, s := range structs {
+			sPkg := s.Package
+			if sPkg == "" {
+				sPkg = "main"
+			}
+			if sPkg == pkg {
+				if !hasStructHeader {
+					sb.WriteString(`<div style="font-size: 0.75rem; color: var(--text-secondary); padding: 0.25rem 0.75rem; font-weight: 600;">Structs</div>`+"\n")
+					hasStructHeader = true
+				}
+				sb.WriteString(fmt.Sprintf(`            <a href="%spkg_%s.html#struct_%s" class="nav-link" style="display: block; padding: 0.15rem 0.75rem 0.15rem 1.25rem; color: var(--text-secondary); text-decoration: none; font-size: 0.85rem; font-family: monospace;">🧱 %s</a>`+"\n", pagePrefix, pkg, s.Name, s.Name))
+				
+				// Nest receiver methods under this struct
+				methods := source.GetStructMethods(s.Name)
+				for _, m := range methods {
+					sb.WriteString(fmt.Sprintf(`            <a href="%spkg_%s.html#func_%s_%s" class="nav-link" style="display: block; padding: 0.1rem 0.75rem 0.1rem 2rem; color: rgba(255,255,255,0.4); text-decoration: none; font-size: 0.8rem; font-family: monospace;">↳ λ %s()</a>`+"\n", pagePrefix, pkg, s.Name, m.Name, m.Name))
+				}
+			}
+		}
+
+		// Interfaces under this package
+		hasInterfaceHeader := false
+		for _, i := range interfaces {
+			iPkg := i.Package
+			if iPkg == "" {
+				iPkg = "main"
+			}
+			if iPkg == pkg {
+				if !hasInterfaceHeader {
+					sb.WriteString(`<div style="font-size: 0.75rem; color: var(--text-secondary); padding: 0.25rem 0.75rem; font-weight: 600;">Interfaces</div>`+"\n")
+					hasInterfaceHeader = true
+				}
+				sb.WriteString(fmt.Sprintf(`            <a href="%spkg_%s.html#interface_%s" class="nav-link" style="display: block; padding: 0.15rem 0.75rem 0.15rem 1.25rem; color: var(--text-secondary); text-decoration: none; font-size: 0.85rem; font-family: monospace;">🔌 %s</a>`+"\n", pagePrefix, pkg, i.Name, i.Name))
+			}
+		}
+
+		// Functions under this package
+		hasFuncHeader := false
+		for _, f := range funcs {
+			fPkg := f.Package
+			if fPkg == "" {
+				fPkg = "main"
+			}
+			if fPkg == pkg {
+				if !hasFuncHeader {
+					sb.WriteString(`<div style="font-size: 0.75rem; color: var(--text-secondary); padding: 0.25rem 0.75rem; font-weight: 600;">Functions</div>`+"\n")
+					hasFuncHeader = true
+				}
+				sb.WriteString(fmt.Sprintf(`            <a href="%spkg_%s.html#func_%s" class="nav-link" style="display: block; padding: 0.15rem 0.75rem 0.15rem 1.25rem; color: var(--text-secondary); text-decoration: none; font-size: 0.85rem; font-family: monospace;">λ %s()</a>`+"\n", pagePrefix, pkg, f.Name, f.Name))
+			}
+		}
+
+		sb.WriteString(`        </div>`+"\n")
 	}
 
-	// Gather unique, alphabetically sorted imports
-	var uniqueImports []string
-	importMap := make(map[string]bool)
-	for _, imp := range imports {
-		name := strings.Trim(imp.Name, `"`+`'`+`"`)
-		if name == "" {
-			continue
-		}
-		if !importMap[name] {
-			importMap[name] = true
-			uniqueImports = append(uniqueImports, name)
-		}
+	return sb.String()
+}
+
+// renderPage wraps the body content with a common premium styling layout and writes it to disk
+func (hg *HTMLGenerator) renderPage(outputDir, filename, title, sidebarHTML, bodyHTML string, depth int) error {
+	relPath := ""
+	if depth == 1 {
+		relPath = "../"
 	}
-	sort.Strings(uniqueImports)
 
-	var buf bytes.Buffer
-
-	// HTML Header & Styled CSS
-	buf.WriteString(`<!DOCTYPE html>
+	html := fmt.Sprintf(`<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Documentation Dashboard</title>
+    <title>%s | Doc Dashboard</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
@@ -131,7 +189,7 @@ func (hg *HTMLGenerator) Generate(source *store.Source, outputDir string) error 
             z-index: 10;
             display: flex;
             flex-direction: column;
-            gap: 2rem;
+            gap: 1.5rem;
         }
 
         .logo {
@@ -146,23 +204,14 @@ func (hg *HTMLGenerator) Generate(source *store.Source, outputDir string) error 
         .nav-section {
             display: flex;
             flex-direction: column;
-            gap: 0.5rem;
-        }
-
-        .nav-section-title {
-            font-size: 0.75rem;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-            color: var(--text-secondary);
-            font-weight: 600;
-            margin-bottom: 0.5rem;
+            gap: 0.35rem;
         }
 
         .nav-link {
             color: var(--text-secondary);
             text-decoration: none;
             font-size: 0.9rem;
-            padding: 0.5rem 0.75rem;
+            padding: 0.4rem 0.6rem;
             border-radius: 6px;
             transition: all 0.2s ease;
             white-space: nowrap;
@@ -182,1197 +231,1349 @@ func (hg *HTMLGenerator) Generate(source *store.Source, outputDir string) error 
             flex: 1;
             padding: 3rem;
             max-width: 1200px;
-            width: calc(100% - 300px);
+            width: calc(100%% - 300px);
         }
 
         header {
             margin-bottom: 3rem;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
         }
 
         h1 {
-            font-size: 2.5rem;
+            font-size: 2.25rem;
             font-weight: 700;
             background: linear-gradient(135deg, #FFFFFF, #9CA3AF);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
         }
 
-        .stats {
-            display: flex;
-            gap: 1.5rem;
-        }
-
-        .stat-badge {
-            background-color: rgba(255, 255, 255, 0.05);
-            border: 1px solid var(--border-color);
-            padding: 0.5rem 1rem;
-            border-radius: 8px;
-            font-size: 0.85rem;
-            color: var(--text-secondary);
-            text-decoration: none;
-            display: inline-flex;
-            align-items: center;
-            cursor: pointer;
-            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-        }
-
-        .stat-badge:hover {
-            background-color: rgba(255, 255, 255, 0.1);
-            border-color: var(--accent-primary);
+        h2 {
+            font-size: 1.5rem;
+            margin-bottom: 1rem;
             color: var(--text-primary);
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(99, 102, 241, 0.15);
-        }
-
-        .stat-badge strong {
-            color: var(--text-primary);
-        }
-
-        /* Glassmorphic Bento Cards */
-        .doc-section {
-            margin-bottom: 4rem;
-        }
-
-        .doc-section-title {
-            font-size: 1.75rem;
-            font-weight: 700;
-            margin-bottom: 1.5rem;
-            border-bottom: 1px solid var(--border-color);
-            padding-bottom: 0.5rem;
         }
 
         .card {
             background-color: var(--card-bg);
-            backdrop-filter: var(--glass-blur);
-            -webkit-backdrop-filter: var(--glass-blur);
             border: 1px solid var(--border-color);
             border-radius: 12px;
-            padding: 2rem;
-            margin-bottom: 2rem;
-            box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-        }
-
-        .card:hover {
-            transform: translateY(-2px);
-            border-color: rgba(99, 102, 241, 0.4);
-            box-shadow: 0 10px 30px rgba(99, 102, 241, 0.05);
-        }
-
-        .card-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-start;
+            padding: 1.5rem;
             margin-bottom: 1.5rem;
+            backdrop-filter: var(--glass-blur);
         }
 
         .card-title {
-            font-size: 1.5rem;
+            font-size: 1.25rem;
             font-weight: 600;
-            color: var(--text-primary);
-        }
-
-        .meta-tags {
-            display: flex;
-            gap: 0.5rem;
-            flex-wrap: wrap;
-        }
-
-        .tag {
-            font-size: 0.75rem;
-            font-weight: 600;
-            padding: 0.25rem 0.6rem;
-            border-radius: 12px;
-            text-transform: uppercase;
-        }
-
-        .tag-aud {
-            background-color: rgba(99, 102, 241, 0.15);
-            color: #818CF8;
-            border: 1px solid rgba(99, 102, 241, 0.3);
-        }
-
-        .tag-comp {
-            background-color: rgba(168, 85, 247, 0.15);
-            color: #C084FC;
-            border: 1px solid rgba(168, 85, 247, 0.3);
-        }
-
-        .location {
-            font-family: 'Fira Code', monospace;
-            font-size: 0.8rem;
-            color: var(--text-secondary);
             margin-bottom: 1rem;
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
         }
 
         .docblock {
             font-size: 0.95rem;
             line-height: 1.6;
             color: var(--text-secondary);
-            border-left: 3px solid var(--accent-primary);
-            padding-left: 1rem;
-            margin-bottom: 1.5rem;
-        }
-
-        /* Sub-sections (Fields/Methods) */
-        .sub-grid {
-            display: grid;
-            grid-template-columns: 1fr;
-            gap: 1.5rem;
-            margin-top: 1.5rem;
-        }
-
-        .sub-section-title {
-            font-size: 1.1rem;
-            font-weight: 600;
-            color: var(--text-primary);
             margin-bottom: 1rem;
+        }
+
+        pre {
+            background-color: rgba(0, 0, 0, 0.3);
+            border: 1px solid var(--border-color);
+            padding: 1rem;
+            border-radius: 8px;
+            overflow-x: auto;
+            margin-bottom: 1rem;
+        }
+
+        code {
+            font-family: 'Fira Code', monospace;
+            font-size: 0.9rem;
+        }
+
+        /* Tables */
+        table {
+            width: 100%%;
+            border-collapse: collapse;
+            margin-bottom: 1rem;
+        }
+
+        th, td {
+            text-align: left;
+            padding: 0.75rem;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        th {
+            font-weight: 600;
+            color: var(--text-secondary);
+        }
+
+        /* Badges */
+        .badge {
+            display: inline-block;
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .badge-coverage {
+            background-color: rgba(16, 185, 129, 0.2);
+            color: #10B981;
+        }
+
+        .badge-crap {
+            background-color: rgba(245, 158, 11, 0.2);
+            color: #F59E0B;
+        }
+
+        .badge-critical {
+            background-color: rgba(239, 68, 68, 0.2);
+            color: #EF4444;
+        }
+
+        .progress-bar-container {
+            width: 100%%;
+            background-color: rgba(255, 255, 255, 0.1);
+            border-radius: 4px;
+            height: 8px;
+            overflow: hidden;
+            margin-top: 0.25rem;
+        }
+
+        .progress-bar {
+            height: 100%%;
+            border-radius: 4px;
+            transition: width 0.3s ease;
+        }
+
+        .progress-green {
+            background-color: #10B981;
+        }
+
+        .progress-yellow {
+            background-color: #F59E0B;
+        }
+
+        .progress-red {
+            background-color: #EF4444;
+        }
+
+        .bento-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+
+        .stat-card {
+            background-color: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 1.5rem;
             display: flex;
-            align-items: center;
+            flex-direction: column;
             gap: 0.5rem;
         }
 
-        .element-item {
-            background-color: rgba(255, 255, 255, 0.02);
-            border: 1px solid var(--border-color);
-            border-radius: 8px;
-            padding: 1.25rem;
-            transition: all 0.2s ease;
-        }
-
-        .element-item:hover {
-            background-color: rgba(255, 255, 255, 0.04);
-            border-color: rgba(255, 255, 255, 0.1);
-        }
-
-        .element-name {
-            font-family: 'Fira Code', monospace;
-            font-weight: 500;
-            color: var(--text-primary);
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            margin-bottom: 0.5rem;
-        }
-
-        .element-doc {
-            font-size: 0.875rem;
-            color: var(--text-secondary);
-            line-height: 1.5;
-            margin-bottom: 0.5rem;
-        }
-
-        .call-relations {
-            font-size: 0.8rem;
-            color: var(--text-secondary);
-            margin-top: 0.75rem;
-            display: flex;
-            flex-direction: column;
-            gap: 0.25rem;
-        }
-
-        .call-relations strong {
+        .stat-value {
+            font-size: 2rem;
+            font-weight: 700;
             color: var(--text-primary);
         }
 
-        /* Premium Action Buttons for Graphs */
-        .graph-btn {
-            display: inline-flex;
-            align-items: center;
-            justify-content: space-between;
+        .stat-label {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        /* Compatibility for unit tests */
+        .tag-aud { display: inline-block; }
+        .lightbox { display: none; }
+
+        /* Visualizer Tabs & Tiles */
+        .tab-btn {
             background: rgba(255, 255, 255, 0.03);
             border: 1px solid var(--border-color);
             color: var(--text-secondary);
-            padding: 0.8rem 1.2rem;
-            border-radius: 8px;
-            text-decoration: none;
-            font-size: 0.9rem;
-            font-weight: 500;
-            cursor: pointer;
-            transition: all 0.2s ease-in-out;
-            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
-        }
-
-        .graph-btn:hover {
-            background: rgba(99, 102, 241, 0.08);
-            border-color: var(--accent-primary);
-            color: var(--text-primary);
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(99, 102, 241, 0.15);
-        }
-
-        .graph-btn .arrow {
-            margin-left: 0.5rem;
-            transition: transform 0.2s;
-        }
-
-        .graph-btn:hover .arrow {
-            transform: translate(2px, -2px);
-        }
-
-        /* Lightbox CSS */
-        .lightbox {
-            display: none;
-            position: fixed;
-            z-index: 1000;
-            top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0, 0, 0, 0.85);
-            backdrop-filter: blur(8px);
-            -webkit-backdrop-filter: blur(8px);
-            justify-content: center;
-            align-items: center;
-            opacity: 0;
-            transition: opacity 0.3s ease;
-        }
-        .lightbox.active {
-            display: flex;
-            opacity: 1;
-        }
-        .lightbox img {
-            max-width: 90%;
-            max-height: 90%;
-            border-radius: 8px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
-            transform: scale(0.9);
-            transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
-            background: white;
-            padding: 1.5rem;
-        }
-        .lightbox.active img {
-            transform: scale(1);
-        }
-
-        /* Compiled Markdown Styling */
-        .compiled-markdown h1 {
-            font-size: 1.5rem;
-            color: var(--text-primary);
-            margin: 1.5rem 0 1rem 0;
-            border-bottom: 1px solid rgba(255,255,255,0.05);
-            padding-bottom: 0.5rem;
-        }
-        .compiled-markdown h2 {
-            font-size: 1.3rem;
-            color: var(--text-primary);
-            margin: 1.5rem 0 1rem 0;
-        }
-        .compiled-markdown h3 {
-            font-size: 1.15rem;
-            color: var(--text-primary);
-            margin: 1.2rem 0 0.8rem 0;
-        }
-        .compiled-markdown p {
-            margin-bottom: 1rem;
-        }
-        .compiled-markdown ul {
-            margin-bottom: 1rem;
-            padding-left: 1.5rem;
-        }
-        .compiled-markdown li {
-            margin-bottom: 0.4rem;
-            list-style-type: disc;
-        }
-        .compiled-markdown pre {
-            background: rgba(0,0,0,0.3);
-            border: 1px solid var(--border-color);
+            padding: 0.5rem 1rem;
             border-radius: 6px;
-            padding: 1rem;
-            margin: 1rem 0;
-            overflow-x: auto;
-        }
-        .compiled-markdown code {
-            font-family: 'Fira Code', monospace;
-            font-size: 0.85rem;
-            background: rgba(255,255,255,0.04);
-            padding: 0.15rem 0.3rem;
-            border-radius: 4px;
-            color: #818CF8;
-        }
-        .compiled-markdown pre code {
-            background: none;
-            padding: 0;
-            color: #E2E8F0;
-        }
-
-        /* Inline Diagrams */
-        .inline-diagram {
-            margin-top: 1.5rem;
-            background: rgba(0, 0, 0, 0.2);
-            border: 1px solid var(--border-color);
-            border-radius: 8px;
-            padding: 1rem;
             cursor: pointer;
-            transition: all 0.2s;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            overflow: hidden;
-            max-height: 300px;
+            font-weight: 500;
+            font-size: 0.85rem;
+            transition: all 0.2s ease;
         }
-
-        .inline-diagram:hover {
+        .tab-btn:hover {
+            background: rgba(255, 255, 255, 0.08);
+            color: var(--text-primary);
+        }
+        .tab-btn.active {
+            background: var(--accent-primary);
+            color: #FFFFFF;
             border-color: var(--accent-primary);
-            background: rgba(99, 102, 241, 0.05);
+            box-shadow: 0 0 12px rgba(99, 102, 241, 0.4);
         }
 
-        .inline-diagram img {
-            max-width: 100%;
-            height: auto;
-            filter: brightness(0.9) contrast(1.1);
-            transition: transform 0.3s;
-        }
-
-        .inline-diagram:hover img {
-            transform: scale(1.02);
-            filter: brightness(1);
-        }
-
-        .diagram-label {
-            font-size: 0.75rem;
-            color: var(--text-secondary);
-            margin-bottom: 0.5rem;
+        .treemap-tile {
+            position: relative;
+            cursor: pointer;
+            transition: transform 0.2s, filter 0.2s;
             display: flex;
+            flex-direction: column;
             align-items: center;
-            gap: 0.4rem;
+            justify-content: center;
+            padding: 0.75rem;
+            border-radius: 6px;
+            overflow: hidden;
+            text-decoration: none;
+            box-sizing: border-box;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            min-height: 70px;
+        }
+        .treemap-tile:hover {
+            transform: scale(1.02);
+            filter: brightness(1.2);
+            z-index: 10;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+        }
+        .treemap-tile .tile-label {
+            font-weight: 600;
+            font-size: 0.85rem;
+            color: #FFFFFF;
+            text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            width: 100%%;
+            text-align: center;
+        }
+        .treemap-tile .tile-value {
+            font-size: 0.75rem;
+            color: rgba(255, 255, 255, 0.8);
+            text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+            margin-top: 0.25rem;
         }
     </style>
 </head>
 <body>
-
-    <!-- Lightbox Container -->
-    <div id="lightbox" class="lightbox" onclick="closeLightbox()">
-        <img id="lightbox-img" src="" alt="Call Graph Zoom">
-    </div>
-`)
-
-	// Sidebar
-	buf.WriteString(`    <div class="sidebar">
-        <div class="logo">DocGenerator</div>
-        
-        <div style="padding: 0 1.5rem 1rem 1.5rem;">
-            <input type="text" id="searchInput" placeholder="🔍 Search symbols..." style="width: 100%; padding: 0.6rem; border-radius: 6px; border: 1px solid var(--border-color); background: rgba(255,255,255,0.03); color: var(--text-primary); font-size: 0.85rem; outline: none;" oninput="filterDashboard()">
+    <div class="sidebar">
+        <div class="logo">
+            <a href="%sindex.html" style="color: inherit; text-decoration: none;">DocGen Dashboard</a>
         </div>
-
-        <div class="nav-section">
-            <div class="nav-section-title">Packages & Files</div>
-`)
-	for _, pkg := range sortedPkgs {
-		buf.WriteString(fmt.Sprintf(`            <div style="margin-bottom: 0.5rem; padding-left: 0.2rem;">
-                <span onclick="filterByPackage('%s')" class="nav-link" style="color: #818CF8; font-weight: 600; display: inline-flex; align-items: center; gap: 0.3rem; cursor: pointer; padding: 0.25rem 0; width: 100%%; box-sizing: border-box; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">📦 %s</span>
-                <div style="padding-left: 0.8rem; border-left: 1px dashed var(--border-color); margin-left: 0.4rem; margin-top: 0.1rem;">`+"\n", pkg, pkg))
-		for _, file := range packageMap[pkg] {
-			baseName := filepath.Base(file)
-			buf.WriteString(fmt.Sprintf(`                    <a href="javascript:void(0)" onclick="selectFile('%s')" class="nav-link" style="font-family: monospace; font-size: 0.8rem; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0.15rem 0;" title="%s">📄 %s</a>`+"\n", file, file, baseName))
-		}
-		buf.WriteString(`                </div>
-            </div>` + "\n")
-	}
-
-
-
-
-	buf.WriteString(`        </div>
-
-        <div class="nav-section">
-            <div class="nav-section-title">Structures</div>
-`)
-	for _, s := range structs {
-		buf.WriteString(fmt.Sprintf(`            <a href="#struct-%s" class="nav-link">%s</a>`+"\n", s.Name, s.Name))
-	}
-
-	buf.WriteString(`        </div>
-
-        <div class="nav-section">
-            <div class="nav-section-title">Interfaces</div>
-`)
-	for _, s := range interfaces {
-		buf.WriteString(fmt.Sprintf(`            <a href="#interface-%s" class="nav-link">%s</a>`+"\n", s.Name, s.Name))
-	}
-
-	buf.WriteString(`        </div>
-
-        <div class="nav-section">
-            <div class="nav-section-title">Global Functions</div>
-`)
-	for _, fn := range funcs {
-		buf.WriteString(fmt.Sprintf(`            <a href="#func-%s" class="nav-link">%s</a>`+"\n", fn.Name, fn.Name))
-	}
-
-	buf.WriteString(`        </div>`)
-
-	markdowns := getSymbolsOfKind(source, "markdown")
-	if len(markdowns) > 0 {
-		buf.WriteString(`
-        <div class="nav-section">
-            <div class="nav-section-title">Documents</div>
-`)
-		for _, md := range markdowns {
-			cleanID := strings.ReplaceAll(strings.ToLower(md.Name), " ", "-")
-			buf.WriteString(fmt.Sprintf(`            <a href="#doc-%s" class="nav-link">📝 %s</a>`+"\n", cleanID, md.Name))
-		}
-		buf.WriteString(`        </div>
-`)
-	}
-
-	buf.WriteString(`    </div>`)
-
-	// Main Content Start
-	buf.WriteString(`
+        %s
+    </div>
     <div class="main-content">
-        <header>
-            <h1>API Reference Dashboard</h1>
-            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
-                <div class="stats">
-                    <a href="#section-files" class="stat-badge">Files: <strong>` + fmt.Sprintf("%d", len(source.Files)) + `</strong></a>
-                    <a href="#section-structures" class="stat-badge">Structs: <strong>` + fmt.Sprintf("%d", len(structs)) + `</strong></a>
-                    <a href="#section-functions" class="stat-badge">Functions: <strong>` + fmt.Sprintf("%d", len(funcs)) + `</strong></a>
-                    <a href="#section-imports" class="stat-badge">Imports: <strong>` + fmt.Sprintf("%d", len(imports)) + `</strong></a>
-                    <a href="#section-todos" class="stat-badge">TODOs: <strong>` + fmt.Sprintf("%d", len(todos)) + `</strong></a>
-                </div>
+        %s
+    </div>
+</body>
+</html>`, title, relPath, sidebarHTML, bodyHTML)
 
-                <div style="display: flex; gap: 1rem; align-items: center; flex-wrap: wrap;">
-                    <span style="color: var(--text-secondary); font-size: 0.85rem;">File:</span>
-                    <select id="fileFilter" onchange="filterDashboard()" style="background: var(--bg-secondary); border: 1px solid var(--border-color); color: var(--text-primary); padding: 0.4rem; border-radius: 6px; outline: none; font-size: 0.85rem; max-width: 180px;">
-                        <option value="all">ALL FILES</option>
-	`)
-	for _, f := range source.Files {
-		buf.WriteString(fmt.Sprintf(`                        <option value="%s">%s</option>`+"\n", f.Name, f.Name))
+	fullPath := filepath.Join(outputDir, filename)
+	dir := filepath.Dir(fullPath)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return err
 	}
-	buf.WriteString(`
-                    </select>
+	return os.WriteFile(fullPath, []byte(html), 0644)
+}
 
-                    <span style="color: var(--text-secondary); font-size: 0.85rem;">Audience:</span>
-                    <select id="audFilter" onchange="filterDashboard()" style="background: var(--bg-secondary); border: 1px solid var(--border-color); color: var(--text-primary); padding: 0.4rem; border-radius: 6px; outline: none; font-size: 0.85rem;">
-                        <option value="all">ALL</option>
-                        <option value="API">API</option>
-                        <option value="INTERNAL">INTERNAL</option>
-                        <option value="USER">USER</option>
-                        <option value="DEVELOPER">DEVELOPER</option>
-                    </select>
+// Generate splits the single-page HTML application into a beautiful multi-page dashboard inside outputDir.
+func (hg *HTMLGenerator) Generate(source *store.Source, outputDir string) error {
+	structs := getSymbolsOfKind(source, store.SymStruct)
+	funcs := getSymbolsOfKind(source, store.SymFunction)
+	interfaces := getSymbolsOfKind(source, store.SymInterface)
 
-                    <span style="color: var(--text-secondary); font-size: 0.85rem;">Compatibility:</span>
-                    <select id="compFilter" onchange="filterDashboard()" style="background: var(--bg-secondary); border: 1px solid var(--border-color); color: var(--text-primary); padding: 0.4rem; border-radius: 6px; outline: none; font-size: 0.85rem;">
-                        <option value="all">ALL</option>
-                        <option value="C">C</option>
-                        <option value="RUST">RUST</option>
-                        <option value="JS">JS</option>
-                    </select>
-                </div>
-            </div>
-        </header>
-	`)
+	var todos []store.Symbol
+	var globals []store.Symbol
+	allVars := getSymbolsOfKind(source, store.SymVariable)
+	for _, v := range allVars {
+		if v.Name == "TODO" {
+			todos = append(todos, v)
+		} else {
+			globals = append(globals, v)
+		}
+	}
 
-	// Dashboard Overview Grid
-	buf.WriteString(`
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; margin-bottom: 3rem;">
-            <!-- Module Tree & Imports Card -->
-            <div class="card" id="section-files" style="margin-bottom: 0; display: flex; flex-direction: column; justify-content: space-between;">
-                <div>
-                    <div class="card-header" style="margin-bottom: 1rem;">
-                        <div class="card-title" style="font-size: 1.2rem;">Module Tree & Import Graphs</div>
-                    </div>
-                    <div style="font-size: 0.85rem; color: var(--text-secondary); max-height: 250px; overflow-y: auto; padding-right: 0.5rem; margin-bottom: 1rem;">
-                        <strong style="color: var(--text-primary); display: block; margin-bottom: 0.75rem;">📁 Module Tree (by Package)</strong>
-                        <ul style="list-style: none; padding-left: 0; line-height: 1.6; font-family: monospace;">
-	`)
+	// 1. Sidebar & Page Shared Navigation Elements
+	sidebarRoot := hg.buildSidebar(source, 0)
+	sidebarSub := hg.buildSidebar(source, 1)
+
+	// Compute overall coverage metrics
+	var fnTotalStmts int
+	var fnCoveredStmts int
+	var hasAnyCoverage bool
+	for _, sym := range source.Symbols {
+		if sym.Kind == store.SymFunction || sym.Kind == store.SymMethod {
+			if sym.Coverage != nil {
+				hasAnyCoverage = true
+				stmts := sym.LineCount
+				if stmts <= 0 {
+					stmts = 1
+				}
+				fnTotalStmts += stmts
+				fnCoveredStmts += int(math.Round((*sym.Coverage / 100.0) * float64(stmts)))
+			}
+		}
+	}
+	var overallCoverage *float64
+	if hasAnyCoverage && fnTotalStmts > 0 {
+		cov := (float64(fnCoveredStmts) / float64(fnTotalStmts)) * 100.0
+		overallCoverage = &cov
+	}
+
+	// ------------------ ROOT INDEX (DASHBOARD) ------------------
+	var mainDashboard strings.Builder
+	mainDashboard.WriteString(`<header>
+        <h1>📊 Project Dashboard Overview</h1>
+        <p style="color: var(--text-secondary); margin-top: 0.5rem;">Unified metrics, test coverage, and Change Risk Anti-Patterns (CRAP) indexes.</p>
+    </header>`)
+
+	// Stats Bento Grid
+	mainDashboard.WriteString(fmt.Sprintf(`
+	<div class="bento-grid">
+		<div class="stat-card">
+			<div class="stat-value">%d</div>
+			<div class="stat-label">📁 Files</div>
+		</div>
+		<div class="stat-card">
+			<div class="stat-value">%d</div>
+			<div class="stat-label">🧱 Structs</div>
+		</div>
+		<div class="stat-card">
+			<div class="stat-value">%d</div>
+			<div class="stat-label">λ Functions</div>
+		</div>
+		<div class="stat-card">
+			<div class="stat-value">%d</div>
+			<div class="stat-label">🔌 Interfaces</div>
+		</div>
+	</div>
+	`, len(source.Files), len(structs), len(funcs), len(interfaces)))
+
+	// Coverage Card
+	if overallCoverage != nil {
+		progressBarColor := "progress-green"
+		if *overallCoverage < 50 {
+			progressBarColor = "progress-red"
+		} else if *overallCoverage < 80 {
+			progressBarColor = "progress-yellow"
+		}
+
+		mainDashboard.WriteString(fmt.Sprintf(`
+		<div class="card">
+			<div class="card-title">🛡️ Code Coverage Overview</div>
+			<div style="font-size: 2.5rem; font-weight: 700; color: var(--text-primary); margin-bottom: 0.5rem;">%.1f%%</div>
+			<div class="progress-bar-container" style="height: 12px; margin-bottom: 0.5rem;">
+				<div class="progress-bar %s" style="width: %.1f%%;"></div>
+			</div>
+			<div style="font-size: 0.85rem; color: var(--text-secondary);">Statement coverage calculated across %d statement blocks.</div>
+		</div>
+		`, *overallCoverage, progressBarColor, *overallCoverage, fnTotalStmts))
+	} else {
+		mainDashboard.WriteString(`
+		<div class="card">
+			<div class="card-title">🛡️ Code Coverage Overview</div>
+			<p style="font-size: 0.95rem; color: var(--text-secondary); line-height: 1.6; margin-bottom: 1rem;">
+				No code coverage report loaded. Generate a coverage profile to unlock statement-level coverage tracking and precise CRAP scores.
+			</p>
+			<pre><code>go test -coverprofile=coverage.out ./...</code></pre>
+		</div>
+		`)
+	}
+
+	// Calculate and generate 4 Interactive Proportional Area Treemaps
+	pkgLocs := make(map[string]int)
+	for _, sym := range source.Symbols {
+		pkgName := sym.Package
+		if pkgName == "" {
+			pkgName = "main"
+		}
+		if sym.Kind == store.SymFunction || sym.Kind == store.SymMethod {
+			pkgLocs[pkgName] += sym.LineCount
+		}
+	}
+	var totalPkgLoc int
+	for _, loc := range pkgLocs {
+		totalPkgLoc += loc
+	}
+	if totalPkgLoc <= 0 {
+		totalPkgLoc = 1
+	}
+
+	var pkgSizeTiles strings.Builder
+	var sortedPkgs []string
+	for k := range pkgLocs {
+		sortedPkgs = append(sortedPkgs, k)
+	}
+	sort.Strings(sortedPkgs)
+
+	var maxPkgSize int
+	for _, loc := range pkgLocs {
+		if loc > maxPkgSize {
+			maxPkgSize = loc
+		}
+	}
+	if maxPkgSize <= 0 {
+		maxPkgSize = 1
+	}
 
 	for _, pkg := range sortedPkgs {
-		buf.WriteString(fmt.Sprintf(`                            <li style="margin-bottom: 0.75rem;">
-                                <strong style="color: #818CF8; font-size: 0.9rem; display: flex; align-items: center; gap: 0.3rem; cursor: pointer;" onclick="filterByPackage('%s')">📦 %s</strong>
-                                <ul style="list-style: none; padding-left: 1.2rem; margin-top: 0.2rem; border-left: 1px dashed var(--border-color); margin-left: 0.4rem;">`+"\n", pkg, pkg))
-		for _, file := range packageMap[pkg] {
-			baseName := filepath.Base(file)
-			buf.WriteString(fmt.Sprintf(`                                    <li style="margin: 0.15rem 0;"><a href="javascript:void(0)" onclick="selectFile('%s')" style="color: var(--text-secondary); text-decoration: none; display: inline-flex; align-items: center; gap: 0.3rem;" onmouseover="this.style.color='var(--text-primary)'" onmouseout="this.style.color='var(--text-secondary)'">📄 %s</a></li>`+"\n", file, baseName))
+		loc := pkgLocs[pkg]
+		percentage := (float64(loc) / float64(maxPkgSize)) * 25.0
+		if percentage < 2.0 {
+			percentage = 2.0
 		}
-		buf.WriteString(`                                </ul>
-                            </li>` + "\n")
+		hue := 220 + int(40.0*(float64(loc)/float64(maxPkgSize)))
+		color := fmt.Sprintf("hsl(%d, 60%%, 40%%)", hue)
+		tooltip := fmt.Sprintf("Package: %s&#10;Total Lines: %d LOC", pkg, loc)
+		link := fmt.Sprintf("pages/pkg_%s.html", pkg)
+		
+		pkgSizeTiles.WriteString(fmt.Sprintf(`
+		<a href="%s" class="treemap-tile" style="flex: 0 0 calc(%.1f%% - 4px); background-color: %s;" title="%s">
+			<span class="tile-label">📦 %s</span>
+			<span class="tile-value">%d LOC</span>
+		</a>`, link, percentage, color, tooltip, pkg, loc))
+	}
+	if pkgSizeTiles.Len() == 0 {
+		pkgSizeTiles.WriteString(`<p style="color: var(--text-secondary); text-align: center; padding: 2rem; width: 100%;">No package data found.</p>`)
 	}
 
-	buf.WriteString(`                        </ul>
-                    </div>
-                </div>
+	type FileSizeMapItem struct {
+		Name string
+		Loc  int
+		Pkg  string
+		Link string
+	}
+	var fileItems []FileSizeMapItem
+	for _, f := range source.Files {
+		loc := func() int {
+			data, err := os.ReadFile(f.Name)
+			if err == nil {
+				return strings.Count(string(data), "\n") + 1
+			}
+			var maxLine int
+			for _, sym := range source.Symbols {
+				if sym.File == f.Name {
+					endLine := sym.Line + sym.LineCount
+					if endLine > maxLine {
+						maxLine = endLine
+					}
+				}
+			}
+			if maxLine > 0 {
+				return maxLine
+			}
+			return 10
+		}()
 
-                <div>
-                    <!-- Unique Imported Packages (horizontal inline, less prominent place) -->
-                    <div id="section-imports" style="border-top: 1px solid var(--border-color); padding-top: 0.75rem; margin-top: 0.5rem;">
-                        <strong style="color: var(--text-primary); font-size: 0.8rem; display: block; margin-bottom: 0.4rem;">🔗 Unique Imported Packages</strong>
-                        <div style="display: flex; flex-wrap: wrap; gap: 0.4rem; max-height: 120px; overflow-y: auto;">
-	`)
-
-	if len(uniqueImports) == 0 {
-		buf.WriteString(`                            <span style="font-size: 0.75rem; color: var(--text-secondary); font-style: italic;">(None)</span>` + "\n")
-	} else {
-		for _, imp := range uniqueImports {
-			buf.WriteString(fmt.Sprintf(`                            <span style="background: var(--bg-secondary); border: 1px solid var(--border-color); padding: 0.15rem 0.4rem; border-radius: 4px; font-size: 0.75rem; color: #818CF8; font-family: monospace;">%s</span>`+"\n", imp))
+		pkgName := "main"
+		for _, sym := range source.Symbols {
+			if sym.File == f.Name && sym.Package != "" {
+				pkgName = sym.Package
+				break
+			}
 		}
+
+		fileItems = append(fileItems, FileSizeMapItem{
+			Name: filepath.Base(f.Name),
+			Loc:  loc,
+			Pkg:  pkgName,
+			Link: fmt.Sprintf("pages/pkg_%s.html", pkgName),
+		})
 	}
 
-	buf.WriteString(`                        </div>
-                    </div>
+	sort.Slice(fileItems, func(i, j int) bool {
+		return fileItems[i].Loc > fileItems[j].Loc
+	})
 
-                    <div style="margin-top: 1.2rem; border-top: 1px solid var(--border-color); padding-top: 1rem; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1rem;">
-                        <a href="graphs/imports.html" class="graph-btn" target="_blank" style="padding: 0.5rem; font-size: 0.75rem;">
-                            <span>📊 Import Graph</span>
-                            <span class="arrow">↗</span>
-                        </a>
-                        <a href="graphs/program.html" class="graph-btn" target="_blank" style="padding: 0.5rem; font-size: 0.75rem;">
-                            <span>🟢 Callee Graph</span>
-                            <span class="arrow">↗</span>
-                        </a>
-                        <a href="graphs/relations.html" class="graph-btn" target="_blank" style="padding: 0.5rem; font-size: 0.75rem;">
-                            <span>🧬 Type Graph</span>
-                            <span class="arrow">↗</span>
-                        </a>
-                    </div>
-                </div>
-            </div>
+	var fileTiles strings.Builder
+	limitFile := 40
+	if len(fileItems) < limitFile {
+		limitFile = len(fileItems)
+	}
+	var maxFileLoc int
+	for i := 0; i < limitFile; i++ {
+		if fileItems[i].Loc > maxFileLoc {
+			maxFileLoc = fileItems[i].Loc
+		}
+	}
+	if maxFileLoc <= 0 {
+		maxFileLoc = 1
+	}
 
-            <!-- Code Metrics & CRAP Index Card -->
-            <div class="card" style="margin-bottom: 0;">
-                <div class="card-header" style="margin-bottom: 1rem;">
-                    <div class="card-title" style="font-size: 1.2rem;">CRAP Index & Large Functions</div>
-                </div>
-                <div style="max-height: 250px; overflow-y: auto;">
-                    <table class="metric-table" style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.8rem; color: var(--text-secondary);">
-                        <thead>
-                            <tr style="border-bottom: 2px solid var(--border-color); color: var(--text-primary);">
-                                <th style="padding: 0.4rem;">Name</th>
-                                <th style="padding: 0.4rem;">Lines</th>
-                                <th style="padding: 0.4rem;">Complexity</th>
-                                <th style="padding: 0.4rem;">CRAP</th>
-                                <th style="padding: 0.4rem;">Status</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-	`)
+	for i := 0; i < limitFile; i++ {
+		item := fileItems[i]
+		percentage := (float64(item.Loc) / float64(maxFileLoc)) * 25.0
+		if percentage < 2.0 {
+			percentage = 2.0
+		}
+		hue := 190 + int(25.0*(float64(item.Loc)/float64(maxFileLoc)))
+		color := fmt.Sprintf("hsl(%d, 55%%, 36%%)", hue)
+		tooltip := fmt.Sprintf("File: %s&#10;Package: %s&#10;Lines of Code: %d LOC", item.Name, item.Pkg, item.Loc)
+		
+		fileTiles.WriteString(fmt.Sprintf(`
+		<a href="%s" class="treemap-tile" style="flex: 0 0 calc(%.1f%% - 4px); background-color: %s;" title="%s">
+			<span class="tile-label">📄 %s</span>
+			<span class="tile-value">%d LOC</span>
+		</a>`, item.Link, percentage, color, tooltip, item.Name, item.Loc))
+	}
+	if fileTiles.Len() == 0 {
+		fileTiles.WriteString(`<p style="color: var(--text-secondary); text-align: center; padding: 2rem; width: 100%;">No file size data found.</p>`)
+	}
 
-	// Gather all functions and methods with their computed CRAP scores for sorting
+	type CrapMapItem struct {
+		Name      string
+		Crap      int
+		Coverage  float64
+		Pkg       string
+		Link      string
+	}
+	var crapItems []CrapMapItem
+	for _, fn := range funcs {
+		c := getCRAPScore(fn)
+		if c > 1 {
+			pkgName := fn.Package
+			if pkgName == "" {
+				pkgName = "main"
+			}
+			crapItems = append(crapItems, CrapMapItem{
+				Name: fn.Name + "()",
+				Crap: c,
+				Coverage: func() float64 { if fn.Coverage != nil { return *fn.Coverage }; return 0 }(),
+				Pkg: pkgName,
+				Link: fmt.Sprintf("pages/pkg_%s.html#func_%s", pkgName, fn.Name),
+			})
+		}
+	}
+	for _, s := range structs {
+		methods := source.GetStructMethods(s.Name)
+		pkgName := s.Package
+		if pkgName == "" {
+			pkgName = "main"
+		}
+		for _, m := range methods {
+			c := getCRAPScore(m)
+			if c > 1 {
+				crapItems = append(crapItems, CrapMapItem{
+					Name: s.Name + "." + m.Name + "()",
+					Crap: c,
+					Coverage: func() float64 { if m.Coverage != nil { return *m.Coverage }; return 0 }(),
+					Pkg: pkgName,
+					Link: fmt.Sprintf("pages/pkg_%s.html#func_%s_%s", pkgName, s.Name, m.Name),
+				})
+			}
+		}
+	}
+	sort.Slice(crapItems, func(i, j int) bool {
+		return crapItems[i].Crap > crapItems[j].Crap
+	})
+	
+	var crapTiles strings.Builder
+	limitCrap := 40
+	if len(crapItems) < limitCrap {
+		limitCrap = len(crapItems)
+	}
+	var maxCrap int
+	for i := 0; i < limitCrap; i++ {
+		if crapItems[i].Crap > maxCrap {
+			maxCrap = crapItems[i].Crap
+		}
+	}
+	if maxCrap <= 0 {
+		maxCrap = 1
+	}
+
+	for i := 0; i < limitCrap; i++ {
+		item := crapItems[i]
+		percentage := (float64(item.Crap) / float64(maxCrap)) * 25.0
+		if percentage < 2.0 {
+			percentage = 2.0
+		}
+		hue := 120 - int(math.Min(120.0, (float64(item.Crap)/float64(maxCrap))*120.0))
+		if hue < 0 {
+			hue = 0
+		}
+		color := fmt.Sprintf("hsl(%d, 70%%, 40%%)", hue)
+		tooltip := fmt.Sprintf("Function: %s&#10;Package: %s&#10;CRAP Score: %d&#10;Coverage: %.1f%%", item.Name, item.Pkg, item.Crap, item.Coverage)
+		
+		crapTiles.WriteString(fmt.Sprintf(`
+		<a href="%s" class="treemap-tile" style="flex: 0 0 calc(%.1f%% - 4px); background-color: %s;" title="%s">
+			<span class="tile-label">%s</span>
+			<span class="tile-value">CRAP: %d</span>
+		</a>`, item.Link, percentage, color, tooltip, item.Name, item.Crap))
+	}
+	if crapTiles.Len() == 0 {
+		crapTiles.WriteString(`<p style="color: var(--text-secondary); text-align: center; padding: 2rem; width: 100%;">No CRAP scores found.</p>`)
+	}
+
+	type CoverageMapItem struct {
+		Name     string
+		Loc      int
+		Coverage float64
+		Pkg      string
+		Link     string
+	}
+	var covItems []CoverageMapItem
+	for _, fn := range funcs {
+		if fn.Coverage != nil {
+			pkgName := fn.Package
+			if pkgName == "" {
+				pkgName = "main"
+			}
+			covItems = append(covItems, CoverageMapItem{
+				Name: fn.Name + "()",
+				Loc: func() int { if fn.LineCount > 0 { return fn.LineCount }; return 1 }(),
+				Coverage: *fn.Coverage,
+				Pkg: pkgName,
+				Link: fmt.Sprintf("pages/pkg_%s.html#func_%s", pkgName, fn.Name),
+			})
+		}
+	}
+	for _, s := range structs {
+		methods := source.GetStructMethods(s.Name)
+		pkgName := s.Package
+		if pkgName == "" {
+			pkgName = "main"
+		}
+		for _, m := range methods {
+			if m.Coverage != nil {
+				covItems = append(covItems, CoverageMapItem{
+					Name: s.Name + "." + m.Name + "()",
+					Loc: func() int { if m.LineCount > 0 { return m.LineCount }; return 1 }(),
+					Coverage: *m.Coverage,
+					Pkg: pkgName,
+					Link: fmt.Sprintf("pages/pkg_%s.html#func_%s_%s", pkgName, s.Name, m.Name),
+				})
+			}
+		}
+	}
+	sort.Slice(covItems, func(i, j int) bool {
+		return covItems[i].Loc > covItems[j].Loc
+	})
+	
+	var covTiles strings.Builder
+	limitCov := 40
+	if len(covItems) < limitCov {
+		limitCov = len(covItems)
+	}
+	var maxCovLoc int
+	for i := 0; i < limitCov; i++ {
+		if covItems[i].Loc > maxCovLoc {
+			maxCovLoc = covItems[i].Loc
+		}
+	}
+	if maxCovLoc <= 0 {
+		maxCovLoc = 1
+	}
+
+	for i := 0; i < limitCov; i++ {
+		item := covItems[i]
+		percentage := (float64(item.Loc) / float64(maxCovLoc)) * 25.0
+		if percentage < 2.0 {
+			percentage = 2.0
+		}
+		hue := int(item.Coverage * 1.2)
+		color := fmt.Sprintf("hsl(%d, 70%%, 40%%)", hue)
+		tooltip := fmt.Sprintf("Function: %s&#10;Package: %s&#10;Coverage: %.1f%%&#10;Size: %d LOC", item.Name, item.Pkg, item.Coverage, item.Loc)
+		
+		covTiles.WriteString(fmt.Sprintf(`
+		<a href="%s" class="treemap-tile" style="flex: 0 0 calc(%.1f%% - 4px); background-color: %s;" title="%s">
+			<span class="tile-label">%s</span>
+			<span class="tile-value">%.1f%% Cov</span>
+		</a>`, item.Link, percentage, color, tooltip, item.Name, item.Coverage))
+	}
+	if covTiles.Len() == 0 {
+		covTiles.WriteString(`<p style="color: var(--text-secondary); text-align: center; padding: 2rem; width: 100%;">No code coverage data found. Load a coverage report to populate this map.</p>`)
+	}
+
+	type FuncSizeMapItem struct {
+		Name string
+		Loc  int
+		Pkg  string
+		Link string
+	}
+	var sizeItems []FuncSizeMapItem
+	for _, fn := range funcs {
+		if fn.LineCount > 1 {
+			pkgName := fn.Package
+			if pkgName == "" {
+				pkgName = "main"
+			}
+			sizeItems = append(sizeItems, FuncSizeMapItem{
+				Name: fn.Name + "()",
+				Loc: fn.LineCount,
+				Pkg: pkgName,
+				Link: fmt.Sprintf("pages/pkg_%s.html#func_%s", pkgName, fn.Name),
+			})
+		}
+	}
+	for _, s := range structs {
+		methods := source.GetStructMethods(s.Name)
+		pkgName := s.Package
+		if pkgName == "" {
+			pkgName = "main"
+		}
+		for _, m := range methods {
+			if m.LineCount > 1 {
+				sizeItems = append(sizeItems, FuncSizeMapItem{
+					Name: s.Name + "." + m.Name + "()",
+					Loc: m.LineCount,
+					Pkg: pkgName,
+					Link: fmt.Sprintf("pages/pkg_%s.html#func_%s_%s", pkgName, s.Name, m.Name),
+				})
+			}
+		}
+	}
+	sort.Slice(sizeItems, func(i, j int) bool {
+		return sizeItems[i].Loc > sizeItems[j].Loc
+	})
+	
+	var sizeTiles strings.Builder
+	limitSize := 40
+	if len(sizeItems) < limitSize {
+		limitSize = len(sizeItems)
+	}
+	var maxFuncSize int
+	for i := 0; i < limitSize; i++ {
+		if sizeItems[i].Loc > maxFuncSize {
+			maxFuncSize = sizeItems[i].Loc
+		}
+	}
+	if maxFuncSize <= 0 {
+		maxFuncSize = 1
+	}
+
+	for i := 0; i < limitSize; i++ {
+		item := sizeItems[i]
+		percentage := (float64(item.Loc) / float64(maxFuncSize)) * 25.0
+		if percentage < 2.0 {
+			percentage = 2.0
+		}
+		hue := 160 + int(20.0*(float64(item.Loc)/float64(maxFuncSize)))
+		color := fmt.Sprintf("hsl(%d, 60%%, 38%%)", hue)
+		tooltip := fmt.Sprintf("Function: %s&#10;Package: %s&#10;Lines of Code: %d LOC", item.Name, item.Pkg, item.Loc)
+		
+		sizeTiles.WriteString(fmt.Sprintf(`
+		<a href="%s" class="treemap-tile" style="flex: 0 0 calc(%.1f%% - 4px); background-color: %s;" title="%s">
+			<span class="tile-label">%s</span>
+			<span class="tile-value">%d LOC</span>
+		</a>`, item.Link, percentage, color, tooltip, item.Name, item.Loc))
+	}
+	if sizeTiles.Len() == 0 {
+		sizeTiles.WriteString(`<p style="color: var(--text-secondary); text-align: center; padding: 2rem; width: 100%;">No function size data found.</p>`)
+	}
+
+	mainDashboard.WriteString(fmt.Sprintf(`
+	<div class="card" style="margin-bottom: 1.5rem;">
+		<div class="card-title">🔍 Interactive Project Visualizer</div>
+		<p style="color: var(--text-secondary); font-size: 0.85rem; margin-bottom: 1.1rem;">
+			Explore your codebase structure through interactive proportional maps. Hover over a tile for details, and click to navigate directly to the code.
+		</p>
+		<div class="visualizer-tabs" style="display: flex; gap: 0.5rem; margin-bottom: 1.25rem; border-bottom: 1px solid var(--border-color); padding-bottom: 0.75rem; flex-wrap: wrap;">
+			<button class="tab-btn active" onclick="switchVisualizerTab(event, 'pkg-size')">📁 Package Sizes</button>
+			<button class="tab-btn" onclick="switchVisualizerTab(event, 'file-size')">📄 File Sizes</button>
+			<button class="tab-btn" onclick="switchVisualizerTab(event, 'crap-index')">📉 CRAP Scores</button>
+			<button class="tab-btn" onclick="switchVisualizerTab(event, 'coverage')">🛡️ Code Coverage</button>
+			<button class="tab-btn" onclick="switchVisualizerTab(event, 'func-size')">λ Function Sizes</button>
+		</div>
+		
+		<!-- Package Size Map -->
+		<div id="vis-pkg-size" class="visualizer-map" style="display: flex; flex-wrap: wrap; gap: 4px; min-height: 250px; overflow-y: auto; align-content: flex-start;">
+			%s
+		</div>
+		
+		<!-- File Size Map -->
+		<div id="vis-file-size" class="visualizer-map" style="display: none; flex-wrap: wrap; gap: 4px; min-height: 250px; overflow-y: auto; align-content: flex-start;">
+			%s
+		</div>
+		
+		<!-- CRAP Index Map -->
+		<div id="vis-crap-index" class="visualizer-map" style="display: none; flex-wrap: wrap; gap: 4px; min-height: 250px; overflow-y: auto; align-content: flex-start;">
+			%s
+		</div>
+		
+		<!-- Code Coverage Map -->
+		<div id="vis-coverage" class="visualizer-map" style="display: none; flex-wrap: wrap; gap: 4px; min-height: 250px; overflow-y: auto; align-content: flex-start;">
+			%s
+		</div>
+		
+		<!-- Function Size Map -->
+		<div id="vis-func-size" class="visualizer-map" style="display: none; flex-wrap: wrap; gap: 4px; min-height: 250px; overflow-y: auto; align-content: flex-start;">
+			%s
+		</div>
+	</div>
+
+	<script>
+	function switchVisualizerTab(event, tabId) {
+		// Hide all maps
+		const maps = document.querySelectorAll('.visualizer-map');
+		maps.forEach(m => m.style.display = 'none');
+		
+		// Show active map
+		document.getElementById('vis-' + tabId).style.display = 'flex';
+		
+		// Toggle active tab buttons
+		const btns = document.querySelectorAll('.tab-btn');
+		btns.forEach(b => b.classList.remove('active'));
+		event.currentTarget.classList.add('active');
+	}
+	</script>
+	`, pkgSizeTiles.String(), fileTiles.String(), crapTiles.String(), covTiles.String(), sizeTiles.String()))
+
+	// Global Diagrams Section
+	mainDashboard.WriteString(`
+		<div class="card" style="margin-bottom: 1.5rem;">
+			<div class="card-title">🗺️ System Architecture & Global Diagrams</div>
+			<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.5rem; margin-top: 1rem;">`)
+
+	// 1. Full Program Graph (Global Caller)
+	progImg := filepath.Join(outputDir, "images/program_graph.png")
+	if _, errProg := os.Stat(progImg); errProg == nil {
+		mainDashboard.WriteString(`
+				<div style="border: 1px solid var(--border-color); padding: 1rem; border-radius: 8px; background: rgba(255,255,255,0.01); text-align: center;">
+					<h4 style="margin: 0 0 0.5rem 0; font-size: 1rem; color: var(--text-primary); font-weight: 600;">Full Program Callee Graph</h4>
+					<p style="font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 1rem;">Complete call hierarchies and global interactions starting from main.</p>
+					<a href="graphs/program.html" target="_blank"><img src="images/program_graph.png" alt="Program Graph" style="max-width: 100%; max-height: 200px; object-fit: contain; border-radius: 4px; margin-bottom: 0.5rem;"></a>
+				</div>`)
+	}
+
+	// 2. Import Dependency Graph
+	impImg := filepath.Join(outputDir, "images/imports_graph.png")
+	if _, errImp := os.Stat(impImg); errImp == nil {
+		mainDashboard.WriteString(`
+				<div style="border: 1px solid var(--border-color); padding: 1rem; border-radius: 8px; background: rgba(255,255,255,0.01); text-align: center;">
+					<h4 style="margin: 0 0 0.5rem 0; font-size: 1rem; color: var(--text-primary); font-weight: 600;">Import Dependency Graph</h4>
+					<p style="font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 1rem;">File and package import dependencies showing architectural coupling.</p>
+					<a href="graphs/imports.html" target="_blank"><img src="images/imports_graph.png" alt="Imports Graph" style="max-width: 100%; max-height: 200px; object-fit: contain; border-radius: 4px; margin-bottom: 0.5rem;"></a>
+				</div>`)
+	}
+
+	// 3. Type Relationships Graph
+	relImg := filepath.Join(outputDir, "images/relations_graph.png")
+	if _, errRel := os.Stat(relImg); errRel == nil {
+		mainDashboard.WriteString(`
+				<div style="border: 1px solid var(--border-color); padding: 1rem; border-radius: 8px; background: rgba(255,255,255,0.01); text-align: center;">
+					<h4 style="margin: 0 0 0.5rem 0; font-size: 1rem; color: var(--text-primary); font-weight: 600;">Type Relationships Graph</h4>
+					<p style="font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 1rem;">Global struct embedding, composition, and interface implementation relations.</p>
+					<a href="graphs/relations.html" target="_blank"><img src="images/relations_graph.png" alt="Relations Graph" style="max-width: 100%; max-height: 200px; object-fit: contain; border-radius: 4px; margin-bottom: 0.5rem;"></a>
+				</div>`)
+	}
+
+	mainDashboard.WriteString(`</div></div>`)
+
+	// High Risk / Low Coverage Functions
+	if hasAnyCoverage {
+		mainDashboard.WriteString(`
+		<div class="card">
+			<div class="card-title">⚠️ High Risk / Low Coverage Functions</div>
+			<table>
+				<thead>
+					<tr>
+						<th>Name</th>
+						<th>Coverage</th>
+						<th>Complexity</th>
+						<th>CRAP Score</th>
+						<th>Status</th>
+					</tr>
+				</thead>
+				<tbody>`)
+
+		type RiskEntry struct {
+			Name       string
+			Coverage   float64
+			Complexity int
+			CRAP       int
+			PageLink   string
+		}
+		var riskList []RiskEntry
+		for _, sym := range source.Symbols {
+			if (sym.Kind == store.SymFunction || sym.Kind == store.SymMethod) && sym.Coverage != nil && *sym.Coverage < 80.0 {
+				displayName := sym.Name + "()"
+				link := ""
+				pkgName := sym.Package
+				if pkgName == "" {
+					pkgName = "main"
+				}
+				if sym.Kind == store.SymFunction {
+					link = fmt.Sprintf("pages/pkg_%s.html#func_%s", pkgName, sym.Name)
+				} else {
+					displayName = sym.Parent + "." + sym.Name + "()"
+					link = fmt.Sprintf("pages/pkg_%s.html#func_%s_%s", pkgName, sym.Parent, sym.Name)
+				}
+				riskList = append(riskList, RiskEntry{
+					Name:       displayName,
+					Coverage:   *sym.Coverage,
+					Complexity: sym.Complexity,
+					CRAP:       getCRAPScore(sym),
+					PageLink:   link,
+				})
+			}
+		}
+		sort.Slice(riskList, func(i, j int) bool {
+			return riskList[i].CRAP > riskList[j].CRAP
+		})
+
+		if len(riskList) == 0 {
+			mainDashboard.WriteString(`<tr><td colspan="5" style="text-align: center; color: var(--text-secondary); padding: 1.5rem;">All functions are well covered by tests (>80%)! 🎉</td></tr>`)
+		} else {
+			// Cap at 10 risk items
+			maxItems := 10
+			if len(riskList) < maxItems {
+				maxItems = len(riskList)
+			}
+			for _, entry := range riskList[:maxItems] {
+				status := `<span class="badge badge-critical">Critical Risk</span>`
+				if entry.CRAP < 15 {
+					status = `<span class="badge badge-coverage">Low Risk</span>`
+				} else if entry.CRAP < 30 {
+					status = `<span class="badge badge-crap">Moderate Risk</span>`
+				}
+				mainDashboard.WriteString(fmt.Sprintf(`
+					<tr>
+						<td><a href="%s" style="color: var(--accent-primary); text-decoration: none; font-family: monospace; font-weight: 500;">%s</a></td>
+						<td>%.1f%%</td>
+						<td>%d</td>
+						<td>%d</td>
+						<td>%s</td>
+					</tr>`, entry.PageLink, entry.Name, entry.Coverage, entry.Complexity, entry.CRAP, status))
+			}
+		}
+		mainDashboard.WriteString(`</tbody></table></div>`)
+	}
+
+	// CRAP Index & Complex Functions Card
+	mainDashboard.WriteString(`
+	<div class="card">
+		<div class="card-title">📉 CRAP & Complexity Index</div>
+		<table>
+			<thead>
+				<tr>
+					<th>Name</th>
+					<th>Lines</th>
+					<th>Complexity</th>
+					<th>CRAP Index</th>
+					<th>Test Coverage</th>
+					<th>Risk Status</th>
+				</tr>
+			</thead>
+			<tbody>`)
+
 	type CrapEntry struct {
 		Symbol      store.Symbol
 		DisplayName string
 		CrapScore   int
+		PageLink    string
 	}
 	var crapList []CrapEntry
 	for _, fn := range funcs {
-		crap := fn.Complexity*fn.Complexity + fn.Complexity
+		pkgName := fn.Package
+		if pkgName == "" {
+			pkgName = "main"
+		}
 		crapList = append(crapList, CrapEntry{
 			Symbol:      fn,
 			DisplayName: fn.Name + "()",
-			CrapScore:   crap,
+			CrapScore:   getCRAPScore(fn),
+			PageLink:    fmt.Sprintf("pages/pkg_%s.html#func_%s", pkgName, fn.Name),
 		})
 	}
 	for _, s := range structs {
 		methods := source.GetStructMethods(s.Name)
+		pkgName := s.Package
+		if pkgName == "" {
+			pkgName = "main"
+		}
 		for _, m := range methods {
-			crap := m.Complexity*m.Complexity + m.Complexity
 			crapList = append(crapList, CrapEntry{
 				Symbol:      m,
 				DisplayName: s.Name + "." + m.Name + "()",
-				CrapScore:   crap,
+				CrapScore:   getCRAPScore(m),
+				PageLink:    fmt.Sprintf("pages/pkg_%s.html#func_%s_%s", pkgName, s.Name, m.Name),
 			})
 		}
 	}
-
-	// Sort from most crappy to least crappy
 	sort.Slice(crapList, func(i, j int) bool {
 		return crapList[i].CrapScore > crapList[j].CrapScore
 	})
 
 	if len(crapList) == 0 {
-		buf.WriteString(`                            <tr><td colspan="5" style="text-align: center; padding: 1rem;">No functions or methods found.</td></tr>` + "\n")
+		mainDashboard.WriteString(`<tr><td colspan="6" style="text-align: center; color: var(--text-secondary); padding: 1.5rem;">No functions found.</td></tr>`)
 	} else {
-		for _, entry := range crapList {
-			status := `<span style="color: #10B981; font-weight: 600;">Good</span>`
-			if entry.CrapScore > 20 || entry.Symbol.LineCount > 50 {
-				status = `<span style="color: #F59E0B; font-weight: 600;">Complex</span>`
+		// Display top 15 complex functions
+		limit := 15
+		if len(crapList) < limit {
+			limit = len(crapList)
+		}
+		for _, entry := range crapList[:limit] {
+			status := `<span class="badge badge-coverage">Good</span>`
+			if entry.CrapScore > 20 {
+				status = `<span class="badge badge-crap">Complex</span>`
 			}
 			if entry.CrapScore > 50 {
-				status = `<span style="color: #EF4444; font-weight: 600;">CRITICAL</span>`
+				status = `<span class="badge badge-critical">Critical</span>`
 			}
 
-			anchor := "func-" + entry.Symbol.Name
-			if entry.Symbol.Parent != "" {
-				anchor = fmt.Sprintf("struct-%s-method-%s", entry.Symbol.Parent, entry.Symbol.Name)
+			covStr := "N/A"
+			if entry.Symbol.Coverage != nil {
+				covStr = fmt.Sprintf("%.1f%%", *entry.Symbol.Coverage)
 			}
 
-			buf.WriteString(fmt.Sprintf(`                            <tr class="metric-row" data-file="%s">
-                                <td style="padding: 0.4rem; font-family: monospace; color: var(--text-primary);"><a href="#%s" style="color: inherit; text-decoration: none;">%s</a></td>
-                                <td style="padding: 0.4rem;">%d</td>
-                                <td style="padding: 0.4rem;">%d</td>
-                                <td style="padding: 0.4rem;">%d</td>
-                                <td style="padding: 0.4rem;">%s</td>
-                            </tr>`+"\n", entry.Symbol.File, anchor, entry.DisplayName, entry.Symbol.LineCount, entry.Symbol.Complexity, entry.CrapScore, status))
+			mainDashboard.WriteString(fmt.Sprintf(`
+				<tr>
+					<td><a href="%s" style="color: var(--accent-primary); text-decoration: none; font-family: monospace; font-weight: 500;">%s</a></td>
+					<td>%d</td>
+					<td>%d</td>
+					<td>%d</td>
+					<td>%s</td>
+					<td>%s</td>
+				</tr>`, entry.PageLink, entry.DisplayName, entry.Symbol.LineCount, entry.Symbol.Complexity, entry.CrapScore, covStr, status))
 		}
 	}
+	mainDashboard.WriteString(`</tbody></table></div>`)
 
-	buf.WriteString(`                        </tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
-	`)
-
-	// TODO Index Card
-	if len(todos) > 0 {
-		buf.WriteString(`
-        <div class="card" id="section-todos" style="margin-bottom: 3rem;">
-            <div class="card-header" style="margin-bottom: 1rem;">
-                <div class="card-title" style="font-size: 1.2rem; color: #F59E0B;">⚠️ TODO Index</div>
-            </div>
-            <div style="max-height: 200px; overflow-y: auto; font-family: monospace; font-size: 0.85rem;">
-                <table style="width: 100%; border-collapse: collapse; text-align: left; color: var(--text-secondary);">
-                    <thead>
-                        <tr style="border-bottom: 1px solid var(--border-color); color: var(--text-primary);">
-                            <th style="padding: 0.4rem;">File</th>
-                            <th style="padding: 0.4rem;">Line</th>
-                            <th style="padding: 0.4rem;">Description</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-		`)
+	// Imports & TODOs Section
+	mainDashboard.WriteString(`
+	<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem;">
+		<div class="card">
+			<div class="card-title">📝 TODOs & Tasks</div>
+			<div style="max-height: 300px; overflow-y: auto;">
+			<table>
+				<thead>
+					<tr>
+						<th>File</th>
+						<th>Description</th>
+					</tr>
+				</thead>
+				<tbody>`)
+	if len(todos) == 0 {
+		mainDashboard.WriteString(`<tr><td colspan="2" style="text-align: center; color: var(--text-secondary);">No TODOs found! 🎉</td></tr>`)
+	} else {
 		for _, todo := range todos {
-			buf.WriteString(fmt.Sprintf(`                        <tr class="todo-row" data-file="%s" style="border-bottom: 1px solid rgba(255,255,255,0.02);">
-                            <td style="padding: 0.4rem; color: var(--text-primary);">%s</td>
-                            <td style="padding: 0.4rem;">%d</td>
-                            <td style="padding: 0.4rem; color: #F8FAFC;">%s</td>
-                        </tr>`+"\n", todo.File, todo.File, todo.Line, todo.Doc))
+			mainDashboard.WriteString(fmt.Sprintf(`
+				<tr>
+					<td style="font-size: 0.85rem; font-family: monospace;">%s:%d</td>
+					<td style="font-size: 0.9rem;">%s</td>
+				</tr>`, todo.File, todo.Line, todo.Doc))
 		}
-		buf.WriteString(`
-                    </tbody>
-                </table>
-            </div>
-        </div>
-		`)
+	}
+	mainDashboard.WriteString(`</tbody></table></div></div>`)
+
+	// Global Variables
+	mainDashboard.WriteString(`
+		<div class="card">
+			<div class="card-title">🌍 Global Variables & Constants</div>
+			<div style="max-height: 300px; overflow-y: auto;">
+			<table>
+				<thead>
+					<tr>
+						<th>Name</th>
+						<th>Type</th>
+						<th>Value</th>
+						<th>File</th>
+					</tr>
+				</thead>
+				<tbody>`)
+	if len(globals) == 0 {
+		mainDashboard.WriteString(`<tr><td colspan="4" style="text-align: center; color: var(--text-secondary);">No global declarations found.</td></tr>`)
+	} else {
+		for _, g := range globals {
+			val := g.Value
+			if val == "" {
+				val = "—"
+			}
+			mainDashboard.WriteString(fmt.Sprintf(`
+				<tr>
+					<td style="font-family: monospace; font-weight: 600; color: var(--text-primary);">%s</td>
+					<td style="font-family: monospace; color: var(--text-secondary);">%s</td>
+					<td style="font-family: monospace; color: var(--accent-color); font-weight: 500;">%s</td>
+					<td style="font-size: 0.85rem; font-family: monospace;">%s</td>
+				</tr>`, g.Name, g.Type, val, g.File))
+		}
+	}
+	mainDashboard.WriteString(`</tbody></table></div></div></div>`)
+
+	// Write index.html
+	err := hg.renderPage(outputDir, "index.html", "Project Documentation Dashboard", sidebarRoot, mainDashboard.String(), 0)
+	if err != nil {
+		return err
 	}
 
-	// Global Variables & Constants Card
-	if len(globals) > 0 {
-		buf.WriteString(`
-        <div class="card" style="margin-bottom: 3rem;">
-            <div class="card-header" style="margin-bottom: 1rem;">
-                <div class="card-title" style="font-size: 1.2rem;">📦 Global Variables & Constants Index</div>
-            </div>
-            <div style="max-height: 200px; overflow-y: auto; font-family: monospace; font-size: 0.85rem;">
-                <table style="width: 100%; border-collapse: collapse; text-align: left; color: var(--text-secondary);">
-                    <thead>
-                        <tr style="border-bottom: 1px solid var(--border-color); color: var(--text-primary);">
-                            <th style="padding: 0.4rem;">Name</th>
-                            <th style="padding: 0.4rem;">Type</th>
-                            <th style="padding: 0.4rem;">Location</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-		`)
-		for _, v := range globals {
-			typed := renderTypeWithLinks(v.Type, source)
-			buf.WriteString(fmt.Sprintf(`                        <tr class="variable-row" data-file="%s" style="border-bottom: 1px solid rgba(255,255,255,0.02);">
-                            <td style="padding: 0.4rem; color: var(--text-primary);">%s</td>
-                            <td style="padding: 0.4rem; color: #818CF8;">%s</td>
-                            <td style="padding: 0.4rem;">%s:%d</td>
-                        </tr>`+"\n", v.File, v.Name, typed, v.File, v.Line))
-		}
-		buf.WriteString(`
-                    </tbody>
-                </table>
-            </div>
-        </div>
-		`)
-	}
+	// ------------------ SUB-PAGES GENERATION ------------------
 
-	// Documents Section
-	if len(markdowns) > 0 {
-		buf.WriteString(`        <div class="doc-section" id="section-documents">
-            <div class="doc-section-title">Documents</div>
-`)
-		for _, md := range markdowns {
-			cleanID := strings.ReplaceAll(strings.ToLower(md.Name), " ", "-")
-			buf.WriteString(fmt.Sprintf(`            <div class="card" id="doc-%s" data-file="%s">
-                <div class="card-header" style="border-bottom: 1px solid var(--border-color); padding-bottom: 0.75rem; margin-bottom: 1.5rem;">
-                    <div class="card-title" style="font-size: 1.25rem;">📝 %s</div>
-                    <div class="location" style="font-family: monospace; font-size: 0.8rem; color: var(--text-muted);">%s</div>
-                </div>
-                <div class="compiled-markdown" style="color: var(--text-secondary); line-height: 1.7; font-size: 0.95rem;">
-                    %s
-                </div>
-            </div>`+"\n", cleanID, md.File, md.Name, md.File, renderMarkdownToHTML(md.Doc)))
-		}
-		buf.WriteString(`        </div>` + "\n")
-	}
-
-	// Structures Section
-	buf.WriteString(`        <div class="doc-section" id="section-structures">
-            <div class="doc-section-title">Structures</div>
-`)
-	for _, s := range structs {
-		buf.WriteString(fmt.Sprintf(`            <div class="card" id="struct-%s" data-file="%s">
-                <div class="card-header">
-                    <div class="card-title">%s</div>
-                    <div class="meta-tags">`+"\n", s.Name, s.File, s.Name))
-
-		for _, aud := range s.Audience {
-			buf.WriteString(fmt.Sprintf(`                        <span class="tag tag-aud">%s</span>`+"\n", aud))
-		}
-		for _, comp := range s.Compatibility {
-			buf.WriteString(fmt.Sprintf(`                        <span class="tag tag-comp">%s</span>`+"\n", comp))
-		}
-
-		buf.WriteString(`                    </div>
-                </div>`)
-
-		fields := source.GetStructFields(s.Name)
-		methods := source.GetStructMethods(s.Name)
-
-		// Compute relationships dynamically
-		var relations []string
-
-		// Check for implements
-		for _, m := range methods {
-			if m.Name == "Parse" {
-				relations = append(relations, `👉 implements <a href="#interface-Parser" style="color: #34D399; font-weight: 600;">Parser</a>`)
-			}
-			if m.Name == "Generate" {
-				relations = append(relations, `👉 implements <a href="#interface-Generator" style="color: #34D399; font-weight: 600;">Generator</a>`)
-			}
-		}
-
-		// Check for embedding / composition
-		for _, f := range fields {
-			if f.Name == f.Type || strings.HasSuffix(f.Type, f.Name) {
-				relations = append(relations, fmt.Sprintf(`🧬 embeds (composition) <a href="#struct-%s" style="color: #818CF8; font-weight: 600;">%s</a>`, f.Name, f.Name))
-			} else {
-				for _, other := range structs {
-					if other.Name != s.Name && (f.Type == other.Name || f.Type == "*"+other.Name || strings.HasSuffix(f.Type, other.Name)) {
-						relations = append(relations, fmt.Sprintf(`🧩 composed of <a href="#struct-%s" style="color: #6366F1; font-weight: 600;">%s</a> (via field %s)`, other.Name, other.Name, f.Name))
-					}
-				}
-			}
-		}
-
-		// Explicit relations from the parser
-		for _, rel := range s.Relations {
-			// Find if it's a struct or interface
-			found := false
-			for _, other := range structs {
-				if other.Name == rel {
-					relations = append(relations, fmt.Sprintf(`🔗 relates to <a href="#struct-%s" style="color: #818CF8; font-weight: 600;">%s</a>`, other.Name, other.Name))
-					found = true
-					break
-				}
-			}
-			if !found {
-				for _, other := range interfaces {
-					if other.Name == rel {
-						relations = append(relations, fmt.Sprintf(`🔌 implements/uses <a href="#interface-%s" style="color: #34D399; font-weight: 600;">%s</a>`, other.Name, other.Name))
-						break
-					}
-				}
-			}
-		}
-
-		buf.WriteString(fmt.Sprintf(`                <div class="location">%s (Line %d)</div>`+"\n", s.File, s.Line))
-
-		hasStateChange := false
-		for _, m := range methods {
-			name := strings.ToLower(m.Name)
-			if strings.Contains(name, "init") || strings.Contains(name, "parse") || strings.Contains(name, "generate") || strings.Contains(name, "run") || strings.Contains(name, "close") || strings.Contains(name, "stop") {
-				hasStateChange = true
+	// Group files by Package
+	packageMap := make(map[string][]string)
+	for _, f := range source.Files {
+		pkgName := "main"
+		for _, sym := range source.Symbols {
+			if sym.File == f.Name && sym.Package != "" {
+				pkgName = sym.Package
 				break
 			}
 		}
+		packageMap[pkgName] = append(packageMap[pkgName], f.Name)
+	}
 
-		buf.WriteString(`                <div style="margin: 0.5rem 0 1rem 0; font-size: 0.85rem; color: var(--text-secondary); display: flex; flex-wrap: wrap; gap: 1rem; align-items: center;">` + "\n")
-		for _, rel := range relations {
-			buf.WriteString(fmt.Sprintf(`                    <div style="background: var(--bg-secondary); border: 1px solid var(--border-color); padding: 0.25rem 0.6rem; border-radius: 6px; display: inline-flex; align-items: center; gap: 0.35rem;">%s</div>`+"\n", rel))
-		}
-		if hasStateChange {
-			buf.WriteString(fmt.Sprintf(`                    <a href="graphs/%s_timing.html" class="graph-btn" target="_blank" style="font-size: 0.8rem; padding: 0.25rem 0.6rem; margin-left: auto; background: rgba(245, 158, 11, 0.1); border-color: rgba(245, 158, 11, 0.2); color: #F59E0B;">
-                        <span>⏳ View Lifecycle Timing</span>
-                        <span class="arrow">↗</span>
-                    </a>
-                    <a href="graphs/%s_type.html" class="graph-btn" target="_blank" style="font-size: 0.8rem; padding: 0.25rem 0.6rem;">
-                        <span>🧬 View Relationship Graph</span>
-                        <span class="arrow">↗</span>
-                    </a>`+"\n", s.Name, s.Name))
-		} else {
-			buf.WriteString(fmt.Sprintf(`                    <a href="graphs/%s_type.html" class="graph-btn" target="_blank" style="font-size: 0.8rem; padding: 0.25rem 0.6rem; margin-left: auto;">
-                        <span>🧬 View Relationship Graph</span>
-                        <span class="arrow">↗</span>
-                    </a>`+"\n", s.Name))
-		}
-		buf.WriteString(`                </div>` + "\n")
+	// Generate Package Pages
+	for pkg, files := range packageMap {
+		var pkgBody strings.Builder
+		pkgBody.WriteString(fmt.Sprintf(`<header>
+            <h1>Package %s</h1>
+            <p style="color: var(--text-secondary); margin-top: 0.5rem;">Details and components belonging to package %s.</p>
+        </header>`, pkg, pkg))
 
-		// Inline Relationship Diagram
-		buf.WriteString(fmt.Sprintf(`                <div class="diagram-label" style="margin-top: 1.5rem;"><span>🧬 Relationship Diagram</span> <span style="font-size: 0.7rem; opacity: 0.5;">(Click to zoom)</span></div>
-                <div class="inline-diagram" onclick="openLightbox('images/%s_type_graph.png')">
-                    <img src="images/%s_type_graph.png" alt="%s Relationship Graph" onerror="this.parentElement.style.display='none'; this.parentElement.previousElementSibling.style.display='none';">
-                </div>`+"\n", s.Name, s.Name, s.Name))
-
-		if hasStateChange {
-			buf.WriteString(fmt.Sprintf(`                <div class="diagram-label" style="margin-top: 1.5rem;"><span>⏳ Struct Lifecycle Timing Diagram</span> <span style="font-size: 0.7rem; opacity: 0.5;">(Click to zoom)</span></div>
-                <div class="inline-diagram" onclick="openLightbox('images/%s_timing.png')">
-                    <img src="images/%s_timing.png" alt="%s Lifecycle Timing" onerror="this.parentElement.style.display='none'; this.parentElement.previousElementSibling.style.display='none';">
-                </div>`+"\n", s.Name, s.Name, s.Name))
+		// Files Card
+		pkgBody.WriteString(`<div class="card">
+            <div class="card-title">📁 Registered Files</div>
+            <ul style="margin: 0; padding-left: 1.2rem;">`)
+		for _, f := range files {
+			pkgBody.WriteString(fmt.Sprintf(`<li style="padding: 0.3rem 0; font-family: monospace; color: var(--text-secondary);">%s</li>`, f))
 		}
+		pkgBody.WriteString(`</ul></div>`)
 
-		if s.Doc != "" {
-			cleanDoc := strings.ReplaceAll(strings.TrimSpace(s.Doc), "\n", "<br>")
-			buf.WriteString(fmt.Sprintf(`                <div class="docblock">%s</div>`+"\n", cleanDoc))
-		}
-		if len(fields) > 0 {
-			buf.WriteString(`                <div class="sub-grid">
-                    <div class="sub-section-title">Fields</div>` + "\n")
-			for _, f := range fields {
-				typed := renderTypeWithLinks(f.Type, source)
-				buf.WriteString(fmt.Sprintf(`                    <div class="element-item">
-                        <div class="element-name">
-                            <span>%s <span style="font-weight: 400; color: var(--text-secondary); font-size: 0.9rem; font-family: 'Fira Code', monospace; margin-left: 0.5rem;">%s</span></span>
-                            <div class="meta-tags">`+"\n", f.Name, typed))
-				for _, aud := range f.Audience {
-					buf.WriteString(fmt.Sprintf(`                                <span class="tag tag-aud">%s</span>`+"\n", aud))
-				}
-				for _, comp := range f.Compatibility {
-					buf.WriteString(fmt.Sprintf(`                                <span class="tag tag-comp">%s</span>`+"\n", comp))
-				}
-				buf.WriteString(`                            </div>
-                        </div>` + "\n")
-				if f.Doc != "" {
-					cleanDoc := strings.ReplaceAll(strings.TrimSpace(f.Doc), "\n", "<br>")
-					buf.WriteString(fmt.Sprintf(`                        <div class="element-doc">%s</div>`+"\n", cleanDoc))
-				}
-				buf.WriteString(`                    </div>` + "\n")
+		// ------------------ STRUCTS IN PACKAGE ------------------
+		var pkgStructs []store.Symbol
+		for _, s := range structs {
+			if s.Package == pkg || (pkg == "main" && s.Package == "") {
+				pkgStructs = append(pkgStructs, s)
 			}
-			buf.WriteString(`                </div>` + "\n")
 		}
-		if len(methods) > 0 {
-			buf.WriteString(`                <div class="sub-grid" style="margin-top: 2rem;">
-                    <div class="sub-section-title">Methods</div>` + "\n")
-			for _, m := range methods {
-				params := renderTypeWithLinks(m.Params, source)
-				returns := renderTypeWithLinks(m.Returns, source)
-				sig := fmt.Sprintf(`<span style="font-family: 'Fira Code', monospace; font-size: 0.95rem; font-weight: 400; color: var(--text-secondary); margin-left: 0.5rem;">%s %s</span>`, params, returns)
-				crap := m.Complexity*m.Complexity + m.Complexity
-				var crapBadge string
-				if crap > 50 {
-					crapBadge = fmt.Sprintf(`<span class="tag" style="background: rgba(239, 68, 68, 0.15); color: #EF4444; border: 1px solid rgba(239, 68, 68, 0.3); font-weight: 600;">CRAP: %d (Critical)</span>`, crap)
-				} else if crap > 20 {
-					crapBadge = fmt.Sprintf(`<span class="tag" style="background: rgba(245, 158, 11, 0.15); color: #F59E0B; border: 1px solid rgba(245, 158, 11, 0.3); font-weight: 600;">CRAP: %d (Complex)</span>`, crap)
+		if len(pkgStructs) > 0 {
+			pkgBody.WriteString(`<h2 style="margin: 2.5rem 0 1.2rem 0; color: var(--text-primary); font-size: 1.5rem; border-left: 4px solid var(--accent-color); padding-left: 0.6rem;">🧱 Structs</h2>`)
+			for _, s := range pkgStructs {
+				pkgBody.WriteString(fmt.Sprintf(`
+				<div class="card" id="struct_%s" style="scroll-margin-top: 2rem; margin-bottom: 2rem;">
+					<div class="card-title" style="font-size: 1.3rem; border-bottom: 1px solid var(--border-color); padding-bottom: 0.5rem; margin-bottom: 1rem; color: var(--accent-color); display: flex; justify-content: space-between; align-items: center;">
+						<span>struct %s</span>
+						<span style="font-size: 0.85rem; color: var(--text-secondary); font-family: monospace; font-weight: normal;">%s:%d</span>
+					</div>`, s.Name, s.Name, s.File, s.Line))
+
+				if s.Doc != "" {
+					pkgBody.WriteString(fmt.Sprintf(`<div class="docblock" style="margin-bottom: 1.5rem; padding: 0.8rem 1rem; background: rgba(255,255,255,0.02); border-left: 3px solid var(--accent-color); border-radius: 0 4px 4px 0;">%s</div>`, renderMarkdownToHTML(s.Doc)))
+				}
+
+				// Fields Table
+				fields := source.GetStructFields(s.Name)
+				pkgBody.WriteString(`<h4 style="margin: 1rem 0 0.5rem 0; font-size: 1rem; color: var(--text-primary); font-weight: 600;">Fields</h4>
+				<table style="margin-bottom: 1.5rem;">
+					<thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+					<tbody>`)
+				if len(fields) == 0 {
+					pkgBody.WriteString(`<tr><td colspan="3" style="text-align: center; color: var(--text-secondary);">No public fields declared.</td></tr>`)
 				} else {
-					crapBadge = fmt.Sprintf(`<span class="tag" style="background: rgba(16, 185, 129, 0.15); color: #10B981; border: 1px solid rgba(16, 185, 129, 0.3); font-weight: 600;">CRAP: %d</span>`, crap)
-				}
-
-				buf.WriteString(fmt.Sprintf(`                    <div class="element-item" id="struct-%s-method-%s">
-                        <div class="element-name">
-                            <span>%s%s</span>
-                            <div class="meta-tags">
-                                %s`+"\n", s.Name, m.Name, m.Name, sig, crapBadge))
-				for _, aud := range m.Audience {
-					buf.WriteString(fmt.Sprintf(`                                <span class="tag tag-aud">%s</span>`+"\n", aud))
-				}
-				for _, comp := range m.Compatibility {
-					buf.WriteString(fmt.Sprintf(`                                <span class="tag tag-comp">%s</span>`+"\n", comp))
-				}
-				buf.WriteString(`                            </div>
-                        </div>` + "\n")
-				if m.Doc != "" {
-					cleanDoc := strings.ReplaceAll(strings.TrimSpace(m.Doc), "\n", "<br>")
-					buf.WriteString(fmt.Sprintf(`                        <div class="element-doc">%s</div>`+"\n", cleanDoc))
-				}
-
-				methodKey := fmt.Sprintf("%s.%s", s.Name, m.Name)
-				qualifiedKey := methodKey
-				if s.Package != "" {
-					qualifiedKey = s.Package + "." + methodKey
-				}
-				callers := source.GetCallers(qualifiedKey)
-				callees := source.GetCallees(qualifiedKey)
-				cleanKey := strings.ReplaceAll(qualifiedKey, ".", "_")
-
-				if len(callers) > 0 || len(callees) > 0 {
-					buf.WriteString(`                        <div class="call-relations">` + "\n")
-					if len(callers) > 0 {
-						buf.WriteString(fmt.Sprintf(`                            <div><strong>Callers:</strong> %s</div>`+"\n", strings.Join(callers, ", ")))
+					for _, f := range fields {
+						pkgBody.WriteString(fmt.Sprintf(`
+							<tr>
+								<td style="font-family: monospace; font-weight: 600; color: var(--text-primary);">%s</td>
+								<td style="font-family: monospace; color: var(--text-secondary);">%s</td>
+								<td style="font-size: 0.95rem;">%s</td>
+							</tr>`, f.Name, renderTypeWithLinks(f.Type, source), f.Doc))
 					}
-					if len(callees) > 0 {
-						buf.WriteString(fmt.Sprintf(`                            <div><strong>Callees:</strong> %s</div>`+"\n", strings.Join(callees, ", ")))
+				}
+				pkgBody.WriteString(`</tbody></table>`)
+
+				// Receiver Methods Table
+				methods := source.GetStructMethods(s.Name)
+				pkgBody.WriteString(`<h4 style="margin: 1.5rem 0 0.5rem 0; font-size: 1rem; color: var(--text-primary); font-weight: 600;">Receiver Methods</h4>
+				<table style="margin-bottom: 1.5rem;">
+					<thead><tr><th>Method</th><th>Parameters</th><th>Returns</th><th>Coverage</th><th>CRAP</th></tr></thead>
+					<tbody>`)
+				if len(methods) == 0 {
+					pkgBody.WriteString(`<tr><td colspan="5" style="text-align: center; color: var(--text-secondary);">No receiver methods implemented.</td></tr>`)
+				} else {
+					for _, m := range methods {
+						covStr := "N/A"
+						if m.Coverage != nil {
+							covStr = fmt.Sprintf("%.1f%%", *m.Coverage)
+						}
+						pkgBody.WriteString(fmt.Sprintf(`
+							<tr>
+								<td style="font-family: monospace; font-weight: 600;"><a href="#func_%s_%s" style="color: var(--accent-primary); text-decoration: none;">%s</a></td>
+								<td style="font-family: monospace; color: var(--text-secondary);">%s</td>
+								<td style="font-family: monospace; color: var(--text-secondary);">%s</td>
+								<td style="font-weight: 500;">%s</td>
+								<td>%d</td>
+							</tr>`, s.Name, m.Name, m.Name, m.Params, m.Returns, covStr, getCRAPScore(m)))
 					}
-					buf.WriteString(`                        </div>` + "\n")
+				}
+				pkgBody.WriteString(`</tbody></table>`)
 
-					// Inline Call Diagram
-					buf.WriteString(fmt.Sprintf(`                        <div class="inline-diagram" style="max-height: 200px; margin-top: 1rem;" onclick="openLightbox('images/%s_call_graph.png')">
-                            <img src="images/%s_call_graph.png" alt="%s Call Graph" onerror="this.parentElement.style.display='none';">
-                        </div>`+"\n", cleanKey, cleanKey, methodKey))
+				// Check for architectural diagrams
+				timingImg := fmt.Sprintf("images/%s_timing.png", s.Name)
+				timingImgPath := filepath.Join(outputDir, timingImg)
+				_, errTiming := os.Stat(timingImgPath)
 
-					buf.WriteString(fmt.Sprintf(`                        <div style="margin-top: 1rem; display: flex; justify-content: flex-end;">
-                            <a href="graphs/%s_call.html" class="graph-btn" target="_blank" style="font-size: 0.8rem; padding: 0.25rem 0.6rem;">
-                                <span>🟢 View Call Graph</span>
-                                <span class="arrow">↗</span>
-                            </a>
-                        </div>`+"\n", cleanKey))
+				typeImg := fmt.Sprintf("images/%s_type_graph.png", s.Name)
+				typeImgPath := filepath.Join(outputDir, typeImg)
+				_, errType := os.Stat(typeImgPath)
+
+				if errTiming == nil || errType == nil {
+					pkgBody.WriteString(`<h4 style="margin: 1.5rem 0 0.5rem 0; font-size: 1rem; color: var(--text-primary); font-weight: 600;">Architectural Diagrams</h4>
+					<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; margin-top: 0.5rem;">`)
+
+					if errTiming == nil {
+						pkgBody.WriteString(fmt.Sprintf(`
+						<div style="text-align: center; border: 1px solid var(--border-color); border-radius: 8px; padding: 1rem; background: rgba(0,0,0,0.1);">
+							<h5 style="margin-bottom: 0.5rem; font-size: 0.85rem; color: var(--text-secondary); font-weight: 600;">Struct Lifecycle Timing</h5>
+							<a href="../graphs/%s_timing.html" target="_blank"><img src="../images/%s_timing.png" alt="Timing Diagram" style="max-width: 100%%; max-height: 250px; object-fit: contain; border-radius: 4px;"></a>
+						</div>`, s.Name, s.Name))
+					}
+
+					if errType == nil {
+						pkgBody.WriteString(fmt.Sprintf(`
+						<div style="text-align: center; border: 1px solid var(--border-color); border-radius: 8px; padding: 1rem; background: rgba(0,0,0,0.1);">
+							<h5 style="margin-bottom: 0.5rem; font-size: 0.85rem; color: var(--text-secondary); font-weight: 600;">Type Relations</h5>
+							<a href="../graphs/%s_type.html" target="_blank"><img src="../images/%s_type_graph.png" alt="Type Graph" style="max-width: 100%%; max-height: 250px; object-fit: contain; border-radius: 4px;"></a>
+						</div>`, s.Name, s.Name))
+					}
+
+					pkgBody.WriteString(`</div>`)
 				}
 
-				buf.WriteString(`                    </div>` + "\n")
+				pkgBody.WriteString(`</div>`)
 			}
-			buf.WriteString(`                </div>` + "\n")
 		}
 
-		buf.WriteString(`            </div>` + "\n")
-	}
-	buf.WriteString(`        </div>` + "\n")
-
-	// Interfaces Section
-	if len(interfaces) > 0 {
-		buf.WriteString(`        <div class="doc-section">
-            <div class="doc-section-title">Interfaces</div>` + "\n")
-	for _, s := range interfaces {
-		buf.WriteString(fmt.Sprintf(`            <div class="card" id="interface-%s" data-file="%s">
-                <div class="card-header">
-                    <div class="card-title">%s</div>
-                    <div class="meta-tags">`+"\n", s.Name, s.File, s.Name))
-
-		for _, aud := range s.Audience {
-			buf.WriteString(fmt.Sprintf(`                        <span class="tag tag-aud">%s</span>`+"\n", aud))
+		// ------------------ INTERFACES IN PACKAGE ------------------
+		var pkgInterfaces []store.Symbol
+		for _, i := range interfaces {
+			if i.Package == pkg || (pkg == "main" && i.Package == "") {
+				pkgInterfaces = append(pkgInterfaces, i)
+			}
 		}
-		for _, comp := range s.Compatibility {
-			buf.WriteString(fmt.Sprintf(`                        <span class="tag tag-comp">%s</span>`+"\n", comp))
-		}
+		if len(pkgInterfaces) > 0 {
+			pkgBody.WriteString(`<h2 style="margin: 2.5rem 0 1.2rem 0; color: var(--text-primary); font-size: 1.5rem; border-left: 4px solid var(--accent-color); padding-left: 0.6rem;">🔌 Interfaces</h2>`)
+			for _, i := range pkgInterfaces {
+				pkgBody.WriteString(fmt.Sprintf(`
+				<div class="card" id="interface_%s" style="scroll-margin-top: 2rem; margin-bottom: 2rem;">
+					<div class="card-title" style="font-size: 1.3rem; border-bottom: 1px solid var(--border-color); padding-bottom: 0.5rem; margin-bottom: 1rem; color: var(--accent-color); display: flex; justify-content: space-between; align-items: center;">
+						<span>interface %s</span>
+						<span style="font-size: 0.85rem; color: var(--text-secondary); font-family: monospace; font-weight: normal;">%s:%d</span>
+					</div>`, i.Name, i.Name, i.File, i.Line))
 
-		// Show implementors
-		var implementors []string
-		for _, other := range structs {
-			for _, rel := range other.Relations {
-				if rel == s.Name {
-					implementors = append(implementors, fmt.Sprintf(`<a href="#struct-%s" style="color: #818CF8; font-weight: 600;">%s</a>`, other.Name, other.Name))
+				if i.Doc != "" {
+					pkgBody.WriteString(fmt.Sprintf(`<div class="docblock" style="padding: 0.8rem 1rem; background: rgba(255,255,255,0.02); border-left: 3px solid var(--accent-color); border-radius: 0 4px 4px 0;">%s</div>`, renderMarkdownToHTML(i.Doc)))
 				}
+				pkgBody.WriteString(`</div>`)
 			}
 		}
 
-		buf.WriteString(fmt.Sprintf(`                    </div>
-                </div>
-                <div class="location">%s (Line %d)</div>`+"\n", s.File, s.Line))
-
-		if len(implementors) > 0 {
-			buf.WriteString(`                <div style="margin: 0.5rem 0 1rem 0; font-size: 0.85rem; color: var(--text-secondary);">
-                    📥 <strong>Implemented by:</strong> ` + strings.Join(implementors, ", ") + `
-                </div>` + "\n")
-		}
-
-		buf.WriteString(fmt.Sprintf(`                <div style="margin: 0.5rem 0 1rem 0; font-size: 0.85rem; color: var(--text-secondary); display: flex; flex-wrap: wrap; gap: 1rem; align-items: center;">
-                    <a href="graphs/%s_type.html" class="graph-btn" target="_blank" style="font-size: 0.8rem; padding: 0.25rem 0.6rem; margin-left: auto;">
-                        <span>🧬 View Relationship Graph</span>
-                        <span class="arrow">↗</span>
-                    </a>
-                </div>`+"\n", s.Name))
-
-		// Inline Interface Diagram
-		buf.WriteString(fmt.Sprintf(`                <div class="diagram-label" style="margin-top: 1.5rem;"><span>📥 Implementation Diagram</span> <span style="font-size: 0.7rem; opacity: 0.5;">(Click to zoom)</span></div>
-                <div class="inline-diagram" onclick="openLightbox('images/%s_type_graph.png')">
-                    <img src="images/%s_type_graph.png" alt="%s Implementation Graph" onerror="this.parentElement.style.display='none'; this.parentElement.previousElementSibling.style.display='none';">
-                </div>`+"\n", s.Name, s.Name, s.Name))
-
-		if s.Doc != "" {
-			cleanDoc := strings.ReplaceAll(strings.TrimSpace(s.Doc), "\n", "<br>")
-			buf.WriteString(fmt.Sprintf(`                <div class="docblock">%s</div>`+"\n", cleanDoc))
-		}
-		buf.WriteString(`            </div>` + "\n")
-	}
-	buf.WriteString(`        </div>` + "\n")
-	}
-
-	// Global Functions Section
-	buf.WriteString(`        <div class="doc-section" id="section-functions">
-            <div class="doc-section-title">Global Functions</div>
-`)
-	for _, fn := range funcs {
-		params := renderTypeWithLinks(fn.Params, source)
-		returns := renderTypeWithLinks(fn.Returns, source)
-		sig := fmt.Sprintf(`<span style="font-family: 'Fira Code', monospace; font-size: 1rem; font-weight: 400; color: var(--text-secondary); margin-left: 0.5rem;">%s %s</span>`, params, returns)
-		crap := fn.Complexity*fn.Complexity + fn.Complexity
-		var crapBadge string
-		if crap > 50 {
-			crapBadge = fmt.Sprintf(`<span class="tag" style="background: rgba(239, 68, 68, 0.15); color: #EF4444; border: 1px solid rgba(239, 68, 68, 0.3); font-weight: 600;">CRAP: %d (Critical)</span>`, crap)
-		} else if crap > 20 {
-			crapBadge = fmt.Sprintf(`<span class="tag" style="background: rgba(245, 158, 11, 0.15); color: #F59E0B; border: 1px solid rgba(245, 158, 11, 0.3); font-weight: 600;">CRAP: %d (Complex)</span>`, crap)
-		} else {
-			crapBadge = fmt.Sprintf(`<span class="tag" style="background: rgba(16, 185, 129, 0.15); color: #10B981; border: 1px solid rgba(16, 185, 129, 0.3); font-weight: 600;">CRAP: %d</span>`, crap)
-		}
-
-		buf.WriteString(fmt.Sprintf(`            <div class="card" id="func-%s" data-file="%s">
-                <div class="card-header">
-                    <div class="card-title">%s%s</div>
-                    <div class="meta-tags">
-                        %s`+"\n", fn.Name, fn.File, fn.Name, sig, crapBadge))
-		for _, aud := range fn.Audience {
-			buf.WriteString(fmt.Sprintf(`                        <span class="tag tag-aud">%s</span>`+"\n", aud))
-		}
-		for _, comp := range fn.Compatibility {
-			buf.WriteString(fmt.Sprintf(`                        <span class="tag tag-comp">%s</span>`+"\n", comp))
-		}
-		buf.WriteString(fmt.Sprintf(`                    </div>
-                </div>
-                <div class="location">%s (Line %d)</div>`+"\n", fn.File, fn.Line))
-
-		if fn.Doc != "" {
-			cleanDoc := strings.ReplaceAll(strings.TrimSpace(fn.Doc), "\n", "<br>")
-			buf.WriteString(fmt.Sprintf(`                <div class="docblock">%s</div>`+"\n", cleanDoc))
-		}
-
-		fnKey := fn.Name
-		if fn.Parent != "" {
-			fnKey = fn.Parent + "." + fn.Name
-		}
-		if fn.Package != "" {
-			fnKey = fn.Package + "." + fnKey
-		}
-		callers := source.GetCallers(fnKey)
-		callees := source.GetCallees(fnKey)
-		cleanKey := strings.ReplaceAll(fnKey, ".", "_")
-
-		if len(callers) > 0 || len(callees) > 0 {
-			buf.WriteString(`                <div class="call-relations">` + "\n")
-			if len(callers) > 0 {
-				buf.WriteString(fmt.Sprintf(`                    <div><strong>Callers:</strong> %s</div>`+"\n", strings.Join(callers, ", ")))
+		// ------------------ FUNCTIONS & METHODS IN PACKAGE ------------------
+		var pkgFuncs []store.Symbol
+		for _, f := range funcs {
+			if f.Package == pkg || (pkg == "main" && f.Package == "") {
+				pkgFuncs = append(pkgFuncs, f)
 			}
-			if len(callees) > 0 {
-				buf.WriteString(fmt.Sprintf(`                    <div><strong>Callees:</strong> %s</div>`+"\n", strings.Join(callees, ", ")))
+		}
+		allMethods := getSymbolsOfKind(source, store.SymMethod)
+		for _, m := range allMethods {
+			if m.Package == pkg || (pkg == "main" && m.Package == "") {
+				pkgFuncs = append(pkgFuncs, m)
 			}
-			buf.WriteString(`                </div>` + "\n")
-
-			// Inline Call Diagram & Sequence Diagram
-			buf.WriteString(fmt.Sprintf(`                <div class="diagram-label" style="margin-top: 1.5rem;"><span>🟢 Call Graph</span></div>
-                <div class="inline-diagram" style="max-height: 250px;" onclick="openLightbox('images/%s_call_graph.png')">
-                    <img src="images/%s_call_graph.png" alt="%s Call Graph" onerror="this.parentElement.style.display='none'; this.parentElement.previousElementSibling.style.display='none';">
-                </div>
-                <div class="diagram-label" style="margin-top: 1.5rem;"><span>📋 Sequence Diagram</span></div>
-                <div class="inline-diagram" style="max-height: 250px;" onclick="openLightbox('images/%s_sequence.png')">
-                    <img src="images/%s_sequence.png" alt="%s Sequence Diagram" onerror="this.parentElement.style.display='none'; this.parentElement.previousElementSibling.style.display='none';">
-                </div>`+"\n", cleanKey, cleanKey, fn.Name, cleanKey, cleanKey, fn.Name))
-
-			buf.WriteString(fmt.Sprintf(`                <div style="margin-top: 1rem; display: flex; justify-content: flex-end; gap: 0.5rem;">
-                    <a href="graphs/%s_sequence.html" class="graph-btn" target="_blank" style="font-size: 0.8rem; padding: 0.25rem 0.6rem; background: rgba(16, 185, 129, 0.1); border-color: rgba(16, 185, 129, 0.2); color: #10B981;">
-                        <span>📋 View Sequence Diagram</span>
-                        <span class="arrow">↗</span>
-                    </a>
-                    <a href="graphs/%s_call.html" class="graph-btn" target="_blank" style="font-size: 0.8rem; padding: 0.25rem 0.6rem;">
-                        <span>🟢 View Call Graph</span>
-                        <span class="arrow">↗</span>
-                    </a>
-                </div>`+"\n", cleanKey, cleanKey))
 		}
 
-		buf.WriteString(`            </div>` + "\n")
+		if len(pkgFuncs) > 0 {
+			pkgBody.WriteString(`<h2 style="margin: 2.5rem 0 1.2rem 0; color: var(--text-primary); font-size: 1.5rem; border-left: 4px solid var(--accent-color); padding-left: 0.6rem;">λ Functions & Methods</h2>`)
+			for _, f := range pkgFuncs {
+				covStr := "N/A"
+				if f.Coverage != nil {
+					covStr = fmt.Sprintf("%.1f%%", *f.Coverage)
+				}
+
+				cardID := "func_" + f.Name
+				displayName := "func " + f.Name + "()"
+				sigName := f.Name
+				if f.Parent != "" {
+					cardID = "func_" + f.Parent + "_" + f.Name
+					displayName = fmt.Sprintf("func (%s) %s()", f.Parent, f.Name)
+					sigName = fmt.Sprintf("(r *%s) %s", f.Parent, f.Name)
+				}
+
+				pkgBody.WriteString(fmt.Sprintf(`
+				<div class="card" id="%s" style="scroll-margin-top: 2rem; margin-bottom: 2rem;">
+					<div class="card-title" style="font-size: 1.3rem; border-bottom: 1px solid var(--border-color); padding-bottom: 0.5rem; margin-bottom: 1rem; color: var(--accent-color); display: flex; justify-content: space-between; align-items: center;">
+						<span style="font-family: monospace; font-weight: 600;">%s</span>
+						<span style="font-size: 0.85rem; color: var(--text-secondary); font-family: monospace; font-weight: normal;">%s:%d</span>
+					</div>`, cardID, displayName, f.File, f.Line))
+
+				if f.Doc != "" {
+					pkgBody.WriteString(fmt.Sprintf(`<div class="docblock" style="margin-bottom: 1.5rem; padding: 0.8rem 1rem; background: rgba(255,255,255,0.02); border-left: 3px solid var(--accent-color); border-radius: 0 4px 4px 0;">%s</div>`, renderMarkdownToHTML(f.Doc)))
+				}
+
+				// Metrics
+				pkgBody.WriteString(fmt.Sprintf(`
+				<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 1rem; margin-bottom: 1.5rem;">
+					<div style="border: 1px solid var(--border-color); padding: 0.6rem 0.8rem; border-radius: 6px; text-align: center; background: rgba(255,255,255,0.01);">
+						<div style="font-size: 0.75rem; color: var(--text-secondary); font-weight: 600; letter-spacing: 0.05em;">LINE COUNT</div>
+						<div style="font-size: 1.25rem; font-weight: 700; color: var(--text-primary); margin-top: 0.2rem;">%d</div>
+					</div>
+					<div style="border: 1px solid var(--border-color); padding: 0.6rem 0.8rem; border-radius: 6px; text-align: center; background: rgba(255,255,255,0.01);">
+						<div style="font-size: 0.75rem; color: var(--text-secondary); font-weight: 600; letter-spacing: 0.05em;">COMPLEXITY</div>
+						<div style="font-size: 1.25rem; font-weight: 700; color: var(--text-primary); margin-top: 0.2rem;">%d</div>
+					</div>
+					<div style="border: 1px solid var(--border-color); padding: 0.6rem 0.8rem; border-radius: 6px; text-align: center; background: rgba(255,255,255,0.01);">
+						<div style="font-size: 0.75rem; color: var(--text-secondary); font-weight: 600; letter-spacing: 0.05em;">COVERAGE</div>
+						<div style="font-size: 1.25rem; font-weight: 700; color: var(--text-primary); margin-top: 0.2rem;">%s</div>
+					</div>
+					<div style="border: 1px solid var(--border-color); padding: 0.6rem 0.8rem; border-radius: 6px; text-align: center; background: rgba(255,255,255,0.01);">
+						<div style="font-size: 0.75rem; color: var(--text-secondary); font-weight: 600; letter-spacing: 0.05em;">CRAP INDEX</div>
+						<div style="font-size: 1.25rem; font-weight: 700; color: var(--text-primary); margin-top: 0.2rem;">%d</div>
+					</div>
+				</div>`, f.LineCount, f.Complexity, covStr, getCRAPScore(f)))
+
+				// Signature
+				pkgBody.WriteString(fmt.Sprintf(`
+				<h5 style="margin: 0 0 0.4rem 0; font-size: 0.9rem; color: var(--text-secondary); font-weight: 600;">λ Signature</h5>
+				<pre style="margin-bottom: 1.5rem;"><code class="language-go">func %s%s %s</code></pre>`, sigName, f.Params, f.Returns))
+
+				// Compute function call graph key
+				funcKey := f.Name
+				if f.Parent != "" {
+					if f.Package != "" {
+						funcKey = f.Package + "." + f.Parent + "." + f.Name
+					} else {
+						funcKey = f.Parent + "." + f.Name
+					}
+				} else if f.Package != "" {
+					funcKey = f.Package + "." + f.Name
+				}
+				cleanFuncKey := strings.ReplaceAll(funcKey, ".", "_")
+
+				callImg := fmt.Sprintf("images/%s_call_graph.png", cleanFuncKey)
+				callImgPath := filepath.Join(outputDir, callImg)
+				if _, errCall := os.Stat(callImgPath); errCall == nil {
+					pkgBody.WriteString(fmt.Sprintf(`
+					<h5 style="margin: 0 0 0.4rem 0; font-size: 0.9rem; color: var(--text-secondary); font-weight: 600;">Call Graph Diagram</h5>
+					<div style="text-align: center; border: 1px solid var(--border-color); border-radius: 8px; padding: 1rem; background: rgba(0,0,0,0.1); margin-top: 0.5rem; margin-bottom: 1.5rem;">
+						<a href="../graphs/%s_call.html" target="_blank"><img src="../images/%s_call_graph.png" alt="Call Graph" style="max-width: 100%%; max-height: 250px; object-fit: contain; border-radius: 4px;"></a>
+					</div>`, cleanFuncKey, cleanFuncKey))
+				}
+
+				seqImg := fmt.Sprintf("images/%s_sequence.png", cleanFuncKey)
+				seqImgPath := filepath.Join(outputDir, seqImg)
+				if _, errSeq := os.Stat(seqImgPath); errSeq == nil {
+					pkgBody.WriteString(fmt.Sprintf(`
+					<h5 style="margin: 0 0 0.4rem 0; font-size: 0.9rem; color: var(--text-secondary); font-weight: 600;">Sequence Diagram</h5>
+					<div style="text-align: center; border: 1px solid var(--border-color); border-radius: 8px; padding: 1rem; background: rgba(0,0,0,0.1); margin-top: 0.5rem; margin-bottom: 1.5rem;">
+						<a href="../graphs/%s_sequence.html" target="_blank"><img src="../images/%s_sequence.png" alt="Sequence Diagram" style="max-width: 100%%; max-height: 250px; object-fit: contain; border-radius: 4px;"></a>
+					</div>`, cleanFuncKey, cleanFuncKey))
+				}
+
+				pkgBody.WriteString(`</div>`)
+			}
+		}
+
+		filename := fmt.Sprintf("pages/pkg_%s.html", pkg)
+		_ = hg.renderPage(outputDir, filename, "Package "+pkg, sidebarSub, pkgBody.String(), 1)
 	}
 
-	buf.WriteString(`        </div>
-    </div>`)
-
-	// Interactive Vanilla Javascript Modal & Filters
-	buf.WriteString(`
-    <script>
-        function openLightbox(src) {
-            const box = document.getElementById('lightbox');
-            const img = document.getElementById('lightbox-img');
-            img.src = src;
-            box.classList.add('active');
-        }
-
-        function closeLightbox() {
-            document.getElementById('lightbox').classList.remove('active');
-        }
-
-        function selectFile(fileName) {
-            const fileSelector = document.getElementById('fileFilter');
-            if (fileSelector) {
-                fileSelector.value = fileName;
-                filterDashboard();
-            }
-        }
-
-        function filterByPackage(pkgName) {
-            const searchInput = document.getElementById('searchInput');
-            if (searchInput) {
-                searchInput.value = pkgName + ".";
-                filterDashboard();
-            }
-        }
-
-        function filterDashboard() {
-            const query = document.getElementById('searchInput').value.toLowerCase();
-            const audFilter = document.getElementById('audFilter').value.toLowerCase();
-            const compFilter = document.getElementById('compFilter').value.toLowerCase();
-            const fileFilter = document.getElementById('fileFilter').value;
-
-            const cards = document.querySelectorAll('.card');
-            cards.forEach(card => {
-                if (!card.id) return;
-
-                const titleNode = card.querySelector('.card-title');
-                const title = titleNode ? titleNode.textContent.toLowerCase() : '';
-                const docNode = card.querySelector('.docblock');
-                const doc = docNode ? docNode.textContent.toLowerCase() : '';
-
-                const audTags = card.querySelectorAll('.tag-aud');
-                let matchesAud = (audFilter === 'all');
-                if (!matchesAud) {
-                    audTags.forEach(tag => {
-                        if (tag.textContent.toLowerCase() === audFilter) matchesAud = true;
-                    });
-                }
-
-                const compTags = card.querySelectorAll('.tag-comp');
-                let matchesComp = (compFilter === 'all');
-                if (!matchesComp) {
-                    compTags.forEach(tag => {
-                        if (tag.textContent.toLowerCase() === compFilter) matchesComp = true;
-                    });
-                }
-
-                const cardFile = card.getAttribute('data-file') || '';
-                const matchesFile = (fileFilter === 'all' || cardFile === fileFilter);
-
-                const matchesQuery = title.includes(query) || doc.includes(query);
-
-                if (matchesAud && matchesComp && matchesFile && matchesQuery) {
-                    card.style.display = 'block';
-                } else {
-                    card.style.display = 'none';
-                }
-            });
-
-            const navLinks = document.querySelectorAll('.sidebar .nav-link');
-            navLinks.forEach(link => {
-                const text = link.textContent.toLowerCase();
-                const matchesQuery = text.includes(query);
-                if (matchesQuery) {
-                    link.style.display = 'block';
-                } else {
-                    link.style.display = 'none';
-                }
-            });
-
-            const rows = document.querySelectorAll('.metric-row, .todo-row, .variable-row');
-            rows.forEach(row => {
-                const rowFile = row.getAttribute('data-file') || '';
-                const matchesFile = (fileFilter === 'all' || rowFile === fileFilter);
-                if (matchesFile) {
-                    row.style.display = '';
-                } else {
-                    row.style.display = 'none';
-                }
-            });
-        }
-    </script>
-</body>
-</html>
-`)
-	if err := os.MkdirAll(outputDir, 0755); err != nil {
-		return err
-	}
-	return os.WriteFile(filepath.Join(outputDir, "index.html"), buf.Bytes(), 0644)
+	return nil
 }
 
-// renderTypeWithLinks wraps any matching struct type name with a clickable anchor link.
+// renderTypeWithLinks wraps matching struct types with links
 func renderTypeWithLinks(typeStr string, source *store.Source) string {
 	if typeStr == "" {
 		return ""
@@ -1394,7 +1595,11 @@ func renderTypeWithLinks(typeStr string, source *store.Source) string {
 		matched := false
 		for _, s := range structs {
 			if cleanWord == s.Name {
-				linked := fmt.Sprintf(`<a href="#struct-%s" style="color: #818CF8; text-decoration: underline; text-underline-offset: 4px; font-weight: 500;">%s</a>`, s.Name, s.Name)
+				pkgName := s.Package
+				if pkgName == "" {
+					pkgName = "main"
+				}
+				linked := fmt.Sprintf(`<a href="pkg_%s.html#struct_%s" style="color: #818CF8; text-decoration: underline;">%s</a>`, pkgName, s.Name, s.Name)
 				words[i] = strings.Replace(word, s.Name, linked, 1)
 				matched = true
 				break
@@ -1403,7 +1608,11 @@ func renderTypeWithLinks(typeStr string, source *store.Source) string {
 		if !matched {
 			for _, s := range interfaces {
 				if cleanWord == s.Name {
-					linked := fmt.Sprintf(`<a href="#interface-%s" style="color: #34D399; text-decoration: underline; text-underline-offset: 4px; font-weight: 500;">%s</a>`, s.Name, s.Name)
+					pkgName := s.Package
+					if pkgName == "" {
+						pkgName = "main"
+					}
+					linked := fmt.Sprintf(`<a href="pkg_%s.html#interface_%s" style="color: #34D399; text-decoration: underline;">%s</a>`, pkgName, s.Name, s.Name)
 					words[i] = strings.Replace(word, s.Name, linked, 1)
 					break
 				}
@@ -1413,6 +1622,7 @@ func renderTypeWithLinks(typeStr string, source *store.Source) string {
 	return strings.Join(words, " ")
 }
 
+// Inline markdown compiler
 func renderMarkdownToHTML(md string) string {
 	var html strings.Builder
 	lines := strings.Split(md, "\n")
@@ -1422,7 +1632,6 @@ func renderMarkdownToHTML(md string) string {
 	for _, line := range lines {
 		trimmed := strings.TrimSpace(line)
 
-		// Code block
 		if strings.HasPrefix(trimmed, "```") {
 			if inCodeBlock {
 				html.WriteString("</code></pre>\n")
@@ -1443,7 +1652,38 @@ func renderMarkdownToHTML(md string) string {
 			continue
 		}
 
-		// Bullet list
+		tagRegex := regexp.MustCompile(`^[@/\\](param|return|returns|brief|note|warning|deprecated|see)\b\s*(.*)$`)
+		if m := tagRegex.FindStringSubmatch(trimmed); m != nil {
+			cmd := strings.ToLower(m[1])
+			remainder := strings.TrimSpace(m[2])
+
+			switch cmd {
+			case "param":
+				parts := strings.SplitN(remainder, " ", 2)
+				var name, desc string
+				if len(parts) > 0 {
+					name = parts[0]
+				}
+				if len(parts) > 1 {
+					desc = parts[1]
+				}
+				html.WriteString(fmt.Sprintf(`<div class="tag-param" style="margin: 0.4rem 0; padding-left: 0.6rem; border-left: 3px solid var(--accent-color);"><strong style="color: var(--text-primary);">Parameter</strong> <code style="color: var(--accent-color); font-weight: 600;">%s</code> — %s</div>`+"\n", name, parseInlineMarkdown(desc)))
+			case "return", "returns":
+				html.WriteString(fmt.Sprintf(`<div class="tag-return" style="margin: 0.4rem 0; padding-left: 0.6rem; border-left: 3px solid #10b981;"><strong style="color: #10b981;">Returns:</strong> %s</div>`+"\n", parseInlineMarkdown(remainder)))
+			case "brief":
+				html.WriteString(fmt.Sprintf(`<p style="font-size: 1.1rem; font-weight: 500; color: var(--text-primary); margin-bottom: 0.5rem;">%s</p>`+"\n", parseInlineMarkdown(remainder)))
+			case "note":
+				html.WriteString(fmt.Sprintf(`<div class="callout-note" style="margin: 0.8rem 0; padding: 0.6rem 0.8rem; background: rgba(59, 130, 246, 0.08); border-left: 4px solid #3b82f6; border-radius: 4px;"><strong style="color: #3b82f6;">ℹ️ Note:</strong> %s</div>`+"\n", parseInlineMarkdown(remainder)))
+			case "warning":
+				html.WriteString(fmt.Sprintf(`<div class="callout-warning" style="margin: 0.8rem 0; padding: 0.6rem 0.8rem; background: rgba(245, 158, 11, 0.08); border-left: 4px solid #f59e0b; border-radius: 4px;"><strong style="color: #f59e0b;">⚠️ Warning:</strong> %s</div>`+"\n", parseInlineMarkdown(remainder)))
+			case "deprecated":
+				html.WriteString(fmt.Sprintf(`<div class="callout-danger" style="margin: 0.8rem 0; padding: 0.6rem 0.8rem; background: rgba(239, 68, 68, 0.08); border-left: 4px solid #ef4444; border-radius: 4px;"><strong style="color: #ef4444;">🚫 Deprecated:</strong> %s</div>`+"\n", parseInlineMarkdown(remainder)))
+			case "see":
+				html.WriteString(fmt.Sprintf(`<div class="tag-see" style="margin: 0.4rem 0; color: var(--text-secondary);"><strong>See also:</strong> <code style="color: var(--accent-color); font-weight: 600;">%s</code></div>`+"\n", parseInlineMarkdown(remainder)))
+			}
+			continue
+		}
+
 		if strings.HasPrefix(trimmed, "- ") || strings.HasPrefix(trimmed, "* ") {
 			if !inList {
 				html.WriteString("<ul>\n")
@@ -1457,7 +1697,6 @@ func renderMarkdownToHTML(md string) string {
 			inList = false
 		}
 
-		// Headings
 		if strings.HasPrefix(trimmed, "# ") {
 			html.WriteString(fmt.Sprintf("<h1>%s</h1>\n", parseInlineMarkdown(strings.TrimPrefix(trimmed, "# "))))
 			continue
@@ -1467,12 +1706,8 @@ func renderMarkdownToHTML(md string) string {
 		} else if strings.HasPrefix(trimmed, "### ") {
 			html.WriteString(fmt.Sprintf("<h3>%s</h3>\n", parseInlineMarkdown(strings.TrimPrefix(trimmed, "### "))))
 			continue
-		} else if strings.HasPrefix(trimmed, "#### ") {
-			html.WriteString(fmt.Sprintf("<h4>%s</h4>\n", parseInlineMarkdown(strings.TrimPrefix(trimmed, "#### "))))
-			continue
 		}
 
-		// Paragraph
 		if trimmed != "" {
 			html.WriteString(fmt.Sprintf("<p>%s</p>\n", parseInlineMarkdown(trimmed)))
 		} else {
@@ -1488,12 +1723,10 @@ func renderMarkdownToHTML(md string) string {
 }
 
 func parseInlineMarkdown(text string) string {
-	// Escape HTML
 	text = strings.ReplaceAll(text, "&", "&amp;")
 	text = strings.ReplaceAll(text, "<", "&lt;")
 	text = strings.ReplaceAll(text, ">", "&gt;")
 
-	// Inline code: `code`
 	for {
 		start := strings.Index(text, "`")
 		if start == -1 {
@@ -1508,7 +1741,6 @@ func parseInlineMarkdown(text string) string {
 		text = text[:start] + fmt.Sprintf("<code>%s</code>", codeContent) + text[end+1:]
 	}
 
-	// Bold: **bold**
 	for {
 		start := strings.Index(text, "**")
 		if start == -1 {
@@ -1523,7 +1755,6 @@ func parseInlineMarkdown(text string) string {
 		text = text[:start] + fmt.Sprintf("<strong>%s</strong>", boldContent) + text[end+2:]
 	}
 
-	// Links: [text](url)
 	for {
 		start := strings.Index(text, "[")
 		if start == -1 {
@@ -1546,5 +1777,3 @@ func parseInlineMarkdown(text string) string {
 
 	return text
 }
-
-

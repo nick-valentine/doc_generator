@@ -1,6 +1,8 @@
 package store
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -87,5 +89,77 @@ func TestSource_GetStructFieldsAndMethods(t *testing.T) {
 	methods := src.GetStructMethods("Config")
 	if len(methods) != 1 || methods[0].Name != "Validate" {
 		t.Errorf("expected method Validate for struct Config, got %d", len(methods))
+	}
+}
+
+func TestParseCoverage_MultiFormat(t *testing.T) {
+	// 1. Test standard Go Cover format
+	goCoverContent := `mode: set
+main.go:10.5,15.20 3 1
+main.go:16.5,20.20 2 0
+`
+	tempDir, err := os.MkdirTemp("", "cov_test_*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	goCoverPath := filepath.Join(tempDir, "coverage.out")
+	if err := os.WriteFile(goCoverPath, []byte(goCoverContent), 0644); err != nil {
+		t.Fatalf("failed to write go cover test file: %v", err)
+	}
+
+	blocks, err := ParseCoverage(goCoverPath)
+	if err != nil {
+		t.Fatalf("failed to parse standard Go Cover: %v", err)
+	}
+	if len(blocks) != 2 {
+		t.Errorf("expected 2 blocks, got %d", len(blocks))
+	}
+	if blocks[0].File != "main.go" || blocks[0].StartLine != 10 || blocks[0].EndLine != 15 || blocks[0].Count != 1 {
+		t.Errorf("incorrect block parsing for Go Cover: %+v", blocks[0])
+	}
+
+	// 2. Test LCOV format
+	lcovContent := `TN:
+SF:pkg/store/source.go
+DA:10,1
+DA:11,0
+end_of_record
+`
+	lcovPath := filepath.Join(tempDir, "coverage.info")
+	if err := os.WriteFile(lcovPath, []byte(lcovContent), 0644); err != nil {
+		t.Fatalf("failed to write lcov test file: %v", err)
+	}
+
+	blocks, err = ParseCoverage(lcovPath)
+	if err != nil {
+		t.Fatalf("failed to parse LCOV: %v", err)
+	}
+	if len(blocks) != 2 {
+		t.Errorf("expected 2 blocks for LCOV, got %d", len(blocks))
+	}
+	if blocks[0].File != "pkg/store/source.go" || blocks[0].StartLine != 10 || blocks[0].Count != 1 {
+		t.Errorf("incorrect block parsing for LCOV: %+v", blocks[0])
+	}
+
+	// 3. Test CCOV format
+	ccovContent := `main.go:30:5
+main.go:35:0
+`
+	ccovPath := filepath.Join(tempDir, "coverage.ccov")
+	if err := os.WriteFile(ccovPath, []byte(ccovContent), 0644); err != nil {
+		t.Fatalf("failed to write ccov test file: %v", err)
+	}
+
+	blocks, err = ParseCoverage(ccovPath)
+	if err != nil {
+		t.Fatalf("failed to parse CCOV: %v", err)
+	}
+	if len(blocks) != 2 {
+		t.Errorf("expected 2 blocks for CCOV, got %d", len(blocks))
+	}
+	if blocks[0].File != "main.go" || blocks[0].StartLine != 30 || blocks[0].Count != 5 {
+		t.Errorf("incorrect block parsing for CCOV: %+v", blocks[0])
 	}
 }

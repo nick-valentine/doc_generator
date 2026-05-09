@@ -55,7 +55,7 @@ func (p *PlantUMLDiagramProvider) IsAvailable() bool {
 
 func (p *PlantUMLDiagramProvider) Generate(content string, pngPath string) error {
 	cmd := exec.Command("plantuml", "-tpng", "-pipe")
-	cmd.Env = append(os.Environ(), "PLANTUML_LIMIT_SIZE=32768")
+	cmd.Env = append(os.Environ(), "PLANTUML_LIMIT_SIZE=65536")
 	
 	var input string
 	if strings.HasPrefix(strings.TrimSpace(content), "@start") {
@@ -82,14 +82,48 @@ func (p *PlantUMLDiagramProvider) Generate(content string, pngPath string) error
 	return nil
 }
 
+var providers []DiagramProvider
+
+func RegisterProvider(p DiagramProvider) {
+	providers = append(providers, p)
+}
+
+func init() {
+	RegisterProvider(&PlantUMLDiagramProvider{})
+	RegisterProvider(&DotDiagramProvider{})
+}
+
 func GetBestProvider() DiagramProvider {
-	puml := &PlantUMLDiagramProvider{}
-	if puml.IsAvailable() {
-		return puml
+	// Preference order: PlantUML > Graphviz Dot > Go-Graphviz
+	order := []string{"plantuml", "graphviz dot", "go-graphviz"}
+	for _, name := range order {
+		for _, p := range providers {
+			pName := strings.ToLower(p.Name())
+			if strings.Contains(pName, name) {
+				if p.IsAvailable() {
+					return p
+				}
+			}
+		}
 	}
-	dot := &DotDiagramProvider{}
-	if dot.IsAvailable() {
-		return dot
+	// Fallback to any available provider if none matched
+	for _, p := range providers {
+		if p.IsAvailable() {
+			return p
+		}
+	}
+	return nil
+}
+
+func GetProviderByName(name string) DiagramProvider {
+	nameLower := strings.ToLower(name)
+	for _, p := range providers {
+		pName := strings.ToLower(p.Name())
+		if strings.Contains(pName, nameLower) || strings.Contains(strings.ReplaceAll(pName, "-", ""), nameLower) {
+			if p.IsAvailable() {
+				return p
+			}
+		}
 	}
 	return nil
 }

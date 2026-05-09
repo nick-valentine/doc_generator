@@ -492,6 +492,14 @@ func (gp *GoParser) handleVariable(node *tree_sitter.Node, source *store.Source)
 			if typeNode != nil {
 				typeStr = NodeSource(gp.File, typeNode)
 			}
+			valNode := child.ChildByFieldName("value")
+			if valNode == nil {
+				valNode = child.ChildByFieldName("values")
+			}
+			var valStr string
+			if valNode != nil {
+				valStr = NodeSource(gp.File, valNode)
+			}
 			doc := gp.getLeadingComment(node)
 			cleanedDoc, aud, comp := parseAndCleanTags(doc)
 
@@ -505,6 +513,7 @@ func (gp *GoParser) handleVariable(node *tree_sitter.Node, source *store.Source)
 					Audience:      aud,
 					Compatibility: comp,
 					Type:          typeStr,
+					Value:         valStr,
 					Package:       gp.Package,
 				})
 			}
