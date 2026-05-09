@@ -92,6 +92,23 @@ type CallRelation struct {
 	Callee string
 }
 
+// Pattern represents a detected software design pattern in the source code.
+type Pattern struct {
+	Name        string   // Name of the pattern, e.g. "Abstract Factory"
+	Description string   // Found intent
+	Symbols     []string // List of participating symbol names
+	Category    string   // e.g., Creational, Behavioral, Game
+}
+
+// NetworkComponent represents a detected networking artifact, service, or game-netcode strategy.
+type NetworkComponent struct {
+	Name        string            // e.g. "Reconciliation Loop", "HTTPS Web Server"
+	Type        string            // e.g. "Game Netcode", "Service", "Protocol"
+	Description string            // Descriptive purpose
+	Symbols     []string          // Associated code symbols
+	Details     map[string]string // Additional parsed details (Ports, mitigation type, deterministic flags)
+}
+
 // Source serves as an in-memory normalized database of all parsed files and symbols.
 type Source struct {
 	// Files is the list of all registered source files.
@@ -100,6 +117,10 @@ type Source struct {
 	Symbols []Symbol
 	// Calls is the list of all registered caller-to-callee relationships.
 	Calls   []CallRelation
+	// Patterns stores detected design patterns found during analysis passes.
+	Patterns []Pattern
+	// NetworkAnalysis holds detailed findings of codebase networking topology.
+	NetworkAnalysis []NetworkComponent
 
 	indexesBuilt bool
 	callersIndex map[string][]string
@@ -111,39 +132,68 @@ func (s *Source) buildIndexes() {
 	s.callersIndex = make(map[string][]string)
 	s.calleesIndex = make(map[string][]string)
 
-	addUnique := func(m map[string][]string, key string, val string) {
-		for _, existing := range m[key] {
-			if strings.EqualFold(existing, val) {
-				return
-			}
+	// 1. Pre-cache symbol language mapping for O(1) lookup instead of full scans
+	symLangMap := make(map[string]string)
+	for _, sym := range s.Symbols {
+		ext := strings.ToLower(filepath.Ext(sym.File))
+		lang := ""
+		switch ext {
+		case ".go": lang = "go"
+		case ".ts", ".tsx", ".js", ".jsx": lang = "javascript"
+		case ".odin": lang = "odin"
+		case ".java": lang = "java"
+		case ".kt": lang = "kotlin"
+		case ".py": lang = "python"
+		case ".c", ".h": lang = "c"
+		case ".cpp", ".hpp", ".cc", ".cxx": lang = "cpp"
+		case ".rs": lang = "rust"
 		}
-		m[key] = append(m[key], val)
+		symLangMap[strings.ToLower(sym.Name)] = lang
+	}
+
+	getFastLang := func(name string) string {
+		nL := strings.ToLower(name)
+		if l, ok := symLangMap[nL]; ok { return l }
+		// Try to locate purely by short suffix for fast fuzzy match
+		if idx := strings.LastIndex(nL, "."); idx != -1 {
+			if l, ok := symLangMap[nL[idx+1:]]; ok { return l }
+		}
+		return ""
+	}
+
+	// 2. Use temporary tracker maps to prevent duplicate addition in O(1) time
+	seenCallers := make(map[string]map[string]bool)
+	seenCallees := make(map[string]map[string]bool)
+
+	addFast := func(idxMap map[string][]string, trackMap map[string]map[string]bool, key string, val string) {
+		if trackMap[key] == nil {
+			trackMap[key] = make(map[string]bool)
+		}
+		if !trackMap[key][val] {
+			trackMap[key][val] = true
+			idxMap[key] = append(idxMap[key], val)
+		}
 	}
 
 	for _, c := range s.Calls {
-		langCaller := s.getSymbolLanguage(c.Caller)
-		langCallee := s.getSymbolLanguage(c.Callee)
-		if !areLanguagesCompatible(langCaller, langCallee) {
+		lCaller := getFastLang(c.Caller)
+		lCallee := getFastLang(c.Callee)
+		if !areLanguagesCompatible(lCaller, lCallee) {
 			continue
 		}
 
 		calleeLower := strings.ToLower(c.Callee)
 		callerLower := strings.ToLower(c.Caller)
 
-		// Index for GetCallers (key is callee, value is caller)
-		addUnique(s.callersIndex, calleeLower, c.Caller)
-		for i, ch := range calleeLower {
-			if ch == '.' && i < len(calleeLower)-1 {
-				addUnique(s.callersIndex, calleeLower[i+1:], c.Caller)
-			}
+		addFast(s.callersIndex, seenCallers, calleeLower, c.Caller)
+		// Partial matches for dotted notation
+		if idx := strings.LastIndex(calleeLower, "."); idx != -1 && idx < len(calleeLower)-1 {
+			addFast(s.callersIndex, seenCallers, calleeLower[idx+1:], c.Caller)
 		}
 
-		// Index for GetCallees (key is caller, value is callee)
-		addUnique(s.calleesIndex, callerLower, c.Callee)
-		for i, ch := range callerLower {
-			if ch == '.' && i < len(callerLower)-1 {
-				addUnique(s.calleesIndex, callerLower[i+1:], c.Callee)
-			}
+		addFast(s.calleesIndex, seenCallees, callerLower, c.Callee)
+		if idx := strings.LastIndex(callerLower, "."); idx != -1 && idx < len(callerLower)-1 {
+			addFast(s.calleesIndex, seenCallees, callerLower[idx+1:], c.Callee)
 		}
 	}
 	s.indexesBuilt = true
@@ -230,6 +280,11 @@ func sanitizeIdentifier(s string) string {
 		res = res[:80]
 	}
 	return res
+}
+
+// AddPattern caches a recognized pattern instance.
+func (s *Source) AddPattern(p Pattern) {
+	s.Patterns = append(s.Patterns, p)
 }
 
 // AddCall registers a newly identified call relation, ensuring duplicates are avoided.
@@ -328,6 +383,20 @@ func (s *Source) GetStructMethods(structName string) []Symbol {
 	for _, sym := range s.Symbols {
 		if sym.Kind == SymMethod && sym.Parent == structName {
 			result = append(result, sym)
+		}
+	}
+	return result
+}
+
+// GetDerivedSymbols returns all symbols that explicitly list the given parentName in their Relations list.
+func (s *Source) GetDerivedSymbols(parentName string) []Symbol {
+	var result []Symbol
+	for _, sym := range s.Symbols {
+		for _, rel := range sym.Relations {
+			if rel == parentName {
+				result = append(result, sym)
+				break
+			}
 		}
 	}
 	return result

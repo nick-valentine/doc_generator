@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"crypto/md5"
+	"doc_generator/pkg/analysis"
 	"doc_generator/pkg/diagram"
 	"doc_generator/pkg/generators"
 	"doc_generator/pkg/store"
@@ -27,6 +28,7 @@ import (
 type Config struct {
 	Concurrency     int    `toml:"concurrency"`
 	DiagramProvider string `toml:"diagram_provider"`
+	MaxDiagramSymbols int  `toml:"max_diagram_symbols"`
 	Input struct {
 		Directory string   `toml:"directory"`
 		Ignore    []string `toml:"ignore"`
@@ -162,6 +164,12 @@ func main() {
 		filteredSymbols := source.FilterByAudience(*audienceFlag)
 		source.Symbols = filteredSymbols
 	}
+	
+	// Run automated Design Pattern analysis
+	fmt.Println("Running static heuristics pass to detect Design Patterns...")
+	analysis.RunPatternAnalysis(&source)
+	analysis.RunNetworkAnalysis(&source)
+	fmt.Printf("Completed heuristic analysis. Detected %d patterns, %d network components.\n", len(source.Patterns), len(source.NetworkAnalysis))
 
 	var outputDirs []string
 	for _, out := range config.Output {
@@ -171,7 +179,10 @@ func main() {
 
 	// Dynamic Diagram Provider and Parallel Rendering Threadpool
 	var provider diagram.DiagramProvider
-	if config.DiagramProvider != "" {
+	if config.DiagramProvider == "none" {
+		fmt.Println("Disabling diagram generation via configuration")
+		provider = nil
+	} else if config.DiagramProvider != "" {
 		provider = diagram.GetProviderByName(config.DiagramProvider)
 		if provider == nil {
 			fmt.Printf("Warning: Configured diagram provider %q not available, falling back to auto-detection\n", config.DiagramProvider)
@@ -185,13 +196,25 @@ func main() {
 		fmt.Printf("Using diagram provider: %s\n", provider.Name())
 		var jobs []DiagramJob
 		inputGenStart := time.Now()
-		generateCallGraphs(&source, outputDirs, &jobs)
-		generateImportGraph(&source, outputDirs, &jobs)
-		generateFullProgramGraph(&source, outputDirs, &jobs)
-		generateRelationsGraph(&source, outputDirs, &jobs)
-		generateTypeGraphs(&source, outputDirs, &jobs)
-		generateSequenceDiagrams(&source, outputDirs, &jobs)
-		generateTimingDiagrams(&source, outputDirs, &jobs)
+		limit := config.MaxDiagramSymbols
+		if limit <= 0 {
+			limit = 1000 // Default safety limit
+		}
+
+		if len(source.Symbols) <= limit {
+			generateCallGraphs(&source, outputDirs, &jobs)
+			generateImportGraph(&source, outputDirs, &jobs)
+			generateFullProgramGraph(&source, outputDirs, &jobs)
+			generateRelationsGraph(&source, outputDirs, &jobs)
+			generateTypeGraphs(&source, outputDirs, &jobs)
+			generateSequenceDiagrams(&source, outputDirs, &jobs)
+			generateTimingDiagrams(&source, outputDirs, &jobs)
+		} else {
+			fmt.Printf("Skipping bulky component diagrams (>%d symbols) as count is %d. Configure max_diagram_symbols in docgen.toml to override.\n", limit, len(source.Symbols))
+		}
+		// Always run requested Pattern & Network Generator
+		generatePatternGraphs(&source, outputDirs, &jobs)
+		generateNetworkGraphs(&source, outputDirs, &jobs)
 		fmt.Printf("Input generation completed in %v. Total jobs: %d.\n", time.Since(inputGenStart), len(jobs))
 
 		type diagramCacheType struct {
@@ -488,7 +511,7 @@ func generateCallGraphs(source *store.Source, outputDirs []string, jobs *[]Diagr
 		var callerEdges []edge
 		var collectCallers func(node string, depth int)
 		collectCallers = func(node string, depth int) {
-			if depth >= 5 || visitedCallers[node] {
+			if depth >= 2 || visitedCallers[node] {
 				return
 			}
 			visitedCallers[node] = true
@@ -500,12 +523,12 @@ func generateCallGraphs(source *store.Source, outputDirs []string, jobs *[]Diagr
 		}
 		collectCallers(key, 0)
 
-		// Collect callees recursively up to 5 levels
+		// Collect callees recursively up to 2 levels
 		visitedCallees := make(map[string]bool)
 		var calleeEdges []edge
 		var collectCallees func(node string, depth int)
 		collectCallees = func(node string, depth int) {
-			if depth >= 5 || visitedCallees[node] {
+			if depth >= 2 || visitedCallees[node] {
 				return
 			}
 			visitedCallees[node] = true
@@ -789,6 +812,15 @@ func generateRelationsGraph(source *store.Source, outputDirs []string, jobs *[]D
 			}
 		}
 
+		// Inheritance / Explicit Relations
+		for _, relName := range s.Relations {
+			rel := fmt.Sprintf("    \"%s\" -> \"%s\" [arrowhead=onormal, style=solid, color=\"#6366F1\", label=\"extends\"];\n", s.Name, relName)
+			if !renderedRelations[rel] {
+				renderedRelations[rel] = true
+				dot.WriteString(rel)
+			}
+		}
+
 		// Embedding / Composition Relationships
 		for _, f := range fields {
 			cleanType := strings.Trim(f.Type, "*[]")
@@ -897,6 +929,15 @@ func generateRelationsGraph(source *store.Source, outputDirs []string, jobs *[]D
 						puml.WriteString(rel)
 					}
 				}
+			}
+		}
+
+		// Inheritance / Explicit Relations
+		for _, relName := range s.Relations {
+			rel := fmt.Sprintf("%s --|> %s : extends\n", s.Name, relName)
+			if !renderedPumlRelations[rel] {
+				renderedPumlRelations[rel] = true
+				puml.WriteString(rel)
 			}
 		}
 	}
@@ -1330,6 +1371,16 @@ func generateTypeGraphs(source *store.Source, outputDirs []string, jobs *[]Diagr
 			}
 		}
 
+		// Inheritance / Explicit Relations
+		for _, relName := range sCopy.Relations {
+			dot.WriteString(fmt.Sprintf("    \"%s\" [fillcolor=\"#F5F3FF\", color=\"#6366F1\", fontcolor=\"#1E1B4B\", style=\"filled,rounded\"];\n", relName))
+			rel := fmt.Sprintf("    \"%s\" -> \"%s\" [arrowhead=onormal, style=solid, color=\"#6366F1\", label=\"extends\"];\n", sCopy.Name, relName)
+			if !renderedRelations[rel] {
+				renderedRelations[rel] = true
+				dot.WriteString(rel)
+			}
+		}
+
 		// Composition / Embedding
 		for _, f := range fields {
 			cleanType := strings.Trim(f.Type, "*[]")
@@ -1399,6 +1450,16 @@ func generateTypeGraphs(source *store.Source, outputDirs []string, jobs *[]Diagr
 			}
 		}
 
+		// Inheritance / Explicit Relations
+		for _, relName := range sCopy.Relations {
+			puml.WriteString(fmt.Sprintf("class %s\n", relName))
+			rel := fmt.Sprintf("%s --|> %s : extends\n", sCopy.Name, relName)
+			if !renderedPumlRelations[rel] {
+				renderedPumlRelations[rel] = true
+				puml.WriteString(rel)
+			}
+		}
+
 		for _, f := range fields {
 			cleanType := strings.Trim(f.Type, "*[]")
 			if idx := strings.LastIndex(cleanType, "."); idx != -1 {
@@ -1454,6 +1515,18 @@ func generateTypeGraphs(source *store.Source, outputDirs []string, jobs *[]Diagr
 		// Highlight focal interface node
 		dot.WriteString(fmt.Sprintf("    \"%s\" [fillcolor=\"#ECFDF5\", color=\"#10B981\", fontcolor=\"#064E3B\", style=\"filled,rounded,dashed,bold\"];\n", sCopy.Name))
 
+		renderedRelations := make(map[string]bool)
+		
+		// Inheritance / Explicit Relations for Interface
+		for _, relName := range sCopy.Relations {
+			dot.WriteString(fmt.Sprintf("    \"%s\" [fillcolor=\"#F5F3FF\", color=\"#6366F1\", fontcolor=\"#1E1B4B\", style=\"filled,rounded\"];\n", relName))
+			rel := fmt.Sprintf("    \"%s\" -> \"%s\" [arrowhead=onormal, style=solid, color=\"#6366F1\", label=\"extends\"];\n", sCopy.Name, relName)
+			if !renderedRelations[rel] {
+				renderedRelations[rel] = true
+				dot.WriteString(rel)
+			}
+		}
+
 		// Find structs that implement this interface
 		for _, other := range structs {
 			methods := source.GetStructMethods(other.Name)
@@ -1472,6 +1545,12 @@ func generateTypeGraphs(source *store.Source, outputDirs []string, jobs *[]Diagr
 		puml.WriteString("@startuml\n")
 		puml.WriteString("skinparam classAttributeIconSize 0\n")
 		puml.WriteString(fmt.Sprintf("interface %s\n", sCopy.Name))
+		
+		// Inheritance / Explicit Relations for Interface
+		for _, relName := range sCopy.Relations {
+			puml.WriteString(fmt.Sprintf("interface %s\n", relName))
+			puml.WriteString(fmt.Sprintf("%s --|> %s : extends\n", sCopy.Name, relName))
+		}
 		for _, other := range structs {
 			methods := source.GetStructMethods(other.Name)
 			for _, m := range methods {
@@ -1507,5 +1586,123 @@ func copyImageToAll(srcPng string, filename string, outputDirs []string) {
 		outImgDir := filepath.Join(outputDirs[i], "images")
 		_ = os.MkdirAll(outImgDir, 0755)
 		_ = os.WriteFile(filepath.Join(outImgDir, filename), data, 0644)
+	}
+}
+
+func generatePatternGraphs(source *store.Source, outputDirs []string, jobs *[]DiagramJob) {
+	if len(outputDirs) == 0 || len(source.Patterns) == 0 {
+		return
+	}
+	imagesDir := filepath.Join(outputDirs[0], "images")
+	_ = os.MkdirAll(imagesDir, 0755)
+
+	for i, p := range source.Patterns {
+		if len(p.Symbols) == 0 {
+			continue
+		}
+		// Generate simple hash identifier for the pattern
+		patternID := fmt.Sprintf("pattern_%d", i)
+		pngPath := filepath.Join(imagesDir, patternID+".png")
+		htmlName := patternID + "_graph.html"
+
+		var dot bytes.Buffer
+		dot.WriteString("digraph G {\n")
+		dot.WriteString("    rankdir=TB;\n")
+		dot.WriteString("    node [shape=record, style=\"filled,rounded\", fontname=\"Helvetica\", fillcolor=\"#F0F4F8\", color=\"#4A90E2\"];\n")
+		dot.WriteString("    edge [color=\"#999999\", fontname=\"Helvetica\", fontsize=10];\n")
+		dot.WriteString(fmt.Sprintf("    label=\"Design Pattern: %s\\nCategory: %s\";\n", p.Name, p.Category))
+		dot.WriteString("    labelloc=\"t\";\n")
+
+		// Create nodes for symbols
+		for _, sym := range p.Symbols {
+			dot.WriteString(fmt.Sprintf("    \"%s\" [fillcolor=\"#D6EAF8\", style=\"filled,bold\"];\n", sym))
+		}
+		// Draw connections between sequential members of the pattern cluster
+		for j := 0; j < len(p.Symbols)-1; j++ {
+			dot.WriteString(fmt.Sprintf("    \"%s\" -> \"%s\" [label=\"participates\"];\n", p.Symbols[j], p.Symbols[j+1]))
+		}
+		dot.WriteString("}\n")
+
+		var puml bytes.Buffer
+		puml.WriteString("@startuml\n")
+		puml.WriteString(fmt.Sprintf("title \"Design Pattern: %s (%s)\"\n", p.Name, p.Category))
+		puml.WriteString("skinparam classBackgroundColor #F4F7F6\n")
+		puml.WriteString("skinparam classBorderColor #2C3E50\n")
+
+		safeCat := strings.ReplaceAll(p.Category, " ", "")
+		safeCat = strings.ReplaceAll(safeCat, "/", "")
+
+		for _, sym := range p.Symbols {
+			puml.WriteString(fmt.Sprintf("class \"%s\" << %s >>\n", sym, safeCat))
+		}
+		for j := 0; j < len(p.Symbols)-1; j++ {
+			puml.WriteString(fmt.Sprintf("\"%s\" -- \"%s\" : relates\n", p.Symbols[j], p.Symbols[j+1]))
+		}
+		puml.WriteString("@enduml\n")
+
+		*jobs = append(*jobs, DiagramJob{
+			DotContent:  dot.String(),
+			PumlContent: puml.String(),
+			PngPath:     pngPath,
+			PostRun: func() {
+				copyImageToAll(pngPath, filepath.Base(pngPath), outputDirs)
+				writeGraphHTMLToAll(htmlName, fmt.Sprintf("%s Pattern Visualization", p.Name), fmt.Sprintf("../images/%s.png", patternID), outputDirs)
+			},
+		})
+	}
+}
+
+func generateNetworkGraphs(source *store.Source, outputDirs []string, jobs *[]DiagramJob) {
+	if len(outputDirs) == 0 || len(source.NetworkAnalysis) == 0 {
+		return
+	}
+	imagesDir := filepath.Join(outputDirs[0], "images")
+	_ = os.MkdirAll(imagesDir, 0755)
+
+	for i, nc := range source.NetworkAnalysis {
+		if len(nc.Symbols) == 0 {
+			continue
+		}
+		id := fmt.Sprintf("network_%d", i)
+		pngPath := filepath.Join(imagesDir, id+".png")
+		htmlName := id + "_graph.html"
+
+		var dot bytes.Buffer
+		dot.WriteString("digraph G {\n")
+		dot.WriteString("    rankdir=LR;\n") 
+		dot.WriteString("    node [shape=box, style=\"filled,rounded\", fontname=\"Helvetica\", fillcolor=\"#EAF2F8\", color=\"#2E86C1\"];\n")
+		dot.WriteString("    edge [color=\"#34495E\", fontname=\"Helvetica\", fontsize=10, style=dashed];\n")
+		dot.WriteString(fmt.Sprintf("    label=\"Network Architecture: %s\\nType: %s\";\n", nc.Name, nc.Type))
+		dot.WriteString("    labelloc=\"t\";\n")
+
+		for _, sym := range nc.Symbols {
+			dot.WriteString(fmt.Sprintf("    \"%s\" [fillcolor=\"#D4E6F1\", style=\"filled,bold\", shape=ellipse];\n", sym))
+		}
+		dot.WriteString("}\n")
+
+		var puml bytes.Buffer
+		puml.WriteString("@startuml\n")
+		puml.WriteString(fmt.Sprintf("title \"Network Component: %s (%s)\"\n", nc.Name, nc.Type))
+		puml.WriteString("skinparam componentStyle uml2\n")
+		puml.WriteString("skinparam packageBackgroundColor #FFFFFF\n")
+		puml.WriteString("skinparam interfaceBackgroundColor #FEFECE\n")
+		
+		safeType := strings.ReplaceAll(nc.Type, " ", "")
+		puml.WriteString(fmt.Sprintf("package \"%s\" <<%s>> {\n", nc.Name, safeType))
+		for _, sym := range nc.Symbols {
+			puml.WriteString(fmt.Sprintf("  [ %s ]\n", sym))
+		}
+		puml.WriteString("}\n")
+		puml.WriteString("@enduml\n")
+
+		*jobs = append(*jobs, DiagramJob{
+			DotContent:  dot.String(),
+			PumlContent: puml.String(),
+			PngPath:     pngPath,
+			PostRun: func() {
+				copyImageToAll(pngPath, filepath.Base(pngPath), outputDirs)
+				writeGraphHTMLToAll(htmlName, fmt.Sprintf("%s Network Visualization", nc.Name), fmt.Sprintf("../images/%s.png", id), outputDirs)
+			},
+		})
 	}
 }

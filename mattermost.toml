@@ -1,0 +1,9 @@
+concurrency = 16
+
+[input]
+directory = "../mattermost"
+ignore = ["node_modules", "vendor", ".git", "dist", ".github", "e2e-tests", "tests", "tools", "api", "build", "patches"]
+
+[[output]]
+format = "html"
+directory = "docs/mattermost"

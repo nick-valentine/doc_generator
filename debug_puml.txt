@@ -1,0 +1,70 @@
+Running static heuristics pass to detect Design Patterns...
+Completed heuristic analysis. Detected 4 architecture pattern usage instances.
+Using diagram provider: PlantUML
+DEBUG PATTERN PUML: 
+@startuml
+!theme plain
+title Design Pattern: Singleton (Creational)
+skinparam classBackgroundColor #F4F7F6
+skinparam classBorderColor #2C3E50
+class "OrderManager" << Creational >>
+class "Instance" << Creational >>
+"OrderManager" -- "Instance" : relates
+@enduml
+
+DEBUG PATTERN PUML: 
+@startuml
+!theme plain
+title Design Pattern: Factory Method / Abstract Factory (Creational)
+skinparam classBackgroundColor #F4F7F6
+skinparam classBorderColor #2C3E50
+class "WidgetFactory" << Creational >>
+@enduml
+
+DEBUG PATTERN PUML: 
+@startuml
+!theme plain
+title Design Pattern: Strategy (Behavioral)
+skinparam classBackgroundColor #F4F7F6
+skinparam classBorderColor #2C3E50
+class "Dispatcher" << Behavioral >>
+class "EventListener" << Behavioral >>
+"Dispatcher" -- "EventListener" : relates
+@enduml
+
+DEBUG PATTERN PUML: 
+@startuml
+!theme plain
+title Design Pattern: Observer / EventBus (Behavioral)
+skinparam classBackgroundColor #F4F7F6
+skinparam classBorderColor #2C3E50
+class "Dispatcher" << Behavioral >>
+@enduml
+
+Input generation completed in 26.710804ms. Total jobs: 312.
+Generating 312 diagrams concurrently...
+Progress: 100/312 diagrams generated (32.1%) | 422325.8 diagrams/sec (cached)
+Progress: 200/312 diagrams generated (64.1%) | 600972.4 diagrams/sec (cached)
+Progress: 300/312 diagrams generated (96.2%) | 707889.4 diagrams/sec (cached)
+Warning: failed to generate diagram docs/html/images/pattern_0.png: plantuml execution failed: exit status 200 (stderr: ERROR
+1
+Syntax Error?
+Some diagram description contains errors
+)
+Warning: failed to generate diagram docs/html/images/pattern_1.png: plantuml execution failed: exit status 200 (stderr: ERROR
+1
+Syntax Error?
+Some diagram description contains errors
+)
+Warning: failed to generate diagram docs/html/images/pattern_3.png: plantuml execution failed: exit status 200 (stderr: ERROR
+1
+Syntax Error?
+Some diagram description contains errors
+)
+Warning: failed to generate diagram docs/html/images/pattern_2.png: plantuml execution failed: exit status 200 (stderr: ERROR
+1
+Syntax Error?
+Some diagram description contains errors
+)
+Progress: 312/312 diagrams generated (100.0%) | 446.5 diagrams/sec
+Concurrently generated diagrams successfully.

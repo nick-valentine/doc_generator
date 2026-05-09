@@ -7,4 +7,5 @@ use (
 	./plugins/parsers/java
 	./plugins/parsers/python
 	./plugins/parsers/kotlin
+	./plugins/parsers/javascript
 )

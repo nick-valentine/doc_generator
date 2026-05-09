@@ -36,6 +36,7 @@ type GoParser struct {
 func (gp *GoParser) Parse(filePath string, fileContent []byte, source *store.Source) error {
 	gp.FileName = filePath
 	gp.File = fileContent
+	gp.Package = "" // Reset package for fresh file parse
 	source.AddFile(gp.FileName)
 
 	parser := tree_sitter.NewParser()
@@ -51,7 +52,14 @@ func (gp *GoParser) Parse(filePath string, fileContent []byte, source *store.Sou
 	for i := 0; i < int(root.ChildCount()); i++ {
 		child := root.Child(uint(i))
 		if child != nil && child.Kind() == "package_clause" {
-			nameNode := child.ChildByFieldName("name")
+			var nameNode *tree_sitter.Node
+			for k := 0; k < int(child.ChildCount()); k++ {
+				sc := child.Child(uint(k))
+				if sc != nil && sc.Kind() == "package_identifier" {
+					nameNode = sc
+					break
+				}
+			}
 			if nameNode != nil {
 				gp.Package = NodeSource(gp.File, nameNode)
 				source.AddSymbol(store.Symbol{
