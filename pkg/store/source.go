@@ -121,6 +121,12 @@ func (s *Source) buildIndexes() {
 	}
 
 	for _, c := range s.Calls {
+		langCaller := s.getSymbolLanguage(c.Caller)
+		langCallee := s.getSymbolLanguage(c.Callee)
+		if !areLanguagesCompatible(langCaller, langCallee) {
+			continue
+		}
+
 		calleeLower := strings.ToLower(c.Callee)
 		callerLower := strings.ToLower(c.Caller)
 
@@ -141,6 +147,42 @@ func (s *Source) buildIndexes() {
 		}
 	}
 	s.indexesBuilt = true
+}
+
+func (s *Source) getSymbolLanguage(name string) string {
+	nameLower := strings.ToLower(name)
+	for _, sym := range s.Symbols {
+		symLower := strings.ToLower(sym.Name)
+		if symLower == nameLower || strings.HasSuffix(symLower, "."+nameLower) || strings.HasSuffix(nameLower, "."+symLower) {
+			ext := strings.ToLower(filepath.Ext(sym.File))
+			switch ext {
+			case ".go":
+				return "go"
+			case ".odin":
+				return "odin"
+			case ".py":
+				return "python"
+			case ".kt":
+				return "kotlin"
+			case ".java":
+				return "java"
+			}
+		}
+	}
+	return ""
+}
+
+func areLanguagesCompatible(lang1, lang2 string) bool {
+	if lang1 == "" || lang2 == "" {
+		return true
+	}
+	if lang1 == lang2 {
+		return true
+	}
+	if (lang1 == "kotlin" && lang2 == "java") || (lang1 == "java" && lang2 == "kotlin") {
+		return true
+	}
+	return false
 }
 
 // GetFile retrieves a registered file by its relative path, returning nil if not found.
@@ -165,10 +207,35 @@ func (s *Source) AddSymbol(sym Symbol) {
 	s.Symbols = append(s.Symbols, sym)
 }
 
+func sanitizeIdentifier(s string) string {
+	s = strings.TrimSpace(s)
+	s = strings.ReplaceAll(s, "\n", "_")
+	s = strings.ReplaceAll(s, "\r", "_")
+	s = strings.ReplaceAll(s, "\t", "_")
+
+	var sb strings.Builder
+	for i := 0; i < len(s); i++ {
+		ch := s[i]
+		if (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '.' || ch == '_' || ch == '-' {
+			sb.WriteByte(ch)
+		} else {
+			if sb.Len() > 0 && sb.String()[sb.Len()-1] != '_' {
+				sb.WriteByte('_')
+			}
+		}
+	}
+	res := sb.String()
+	res = strings.Trim(res, "_")
+	if len(res) > 80 {
+		res = res[:80]
+	}
+	return res
+}
+
 // AddCall registers a newly identified call relation, ensuring duplicates are avoided.
 func (s *Source) AddCall(caller, callee string) {
-	caller = strings.TrimSpace(caller)
-	callee = strings.TrimSpace(callee)
+	caller = sanitizeIdentifier(caller)
+	callee = sanitizeIdentifier(callee)
 	if caller == "" || callee == "" {
 		return
 	}

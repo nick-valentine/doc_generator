@@ -54,6 +54,9 @@ func (mg *MarkdownGenerator) Generate(source *store.Source, outputDir string) er
 		for _, strSym := range structs {
 			buf.WriteString(fmt.Sprintf("### Struct: `%s`\n", strSym.Name))
 			buf.WriteString(fmt.Sprintf("- **Location:** %s (Line %d)\n", strSym.File, strSym.Line))
+			if len(strSym.Relations) > 0 {
+				buf.WriteString(fmt.Sprintf("- **Relations:** %s\n", strings.Join(strSym.Relations, ", ")))
+			}
 			if len(strSym.Audience) > 0 {
 				buf.WriteString(fmt.Sprintf("- **Audience:** %s\n", strings.Join(strSym.Audience, ", ")))
 			}

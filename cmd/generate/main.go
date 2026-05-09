@@ -933,13 +933,18 @@ func generateSequenceDiagrams(source *store.Source, outputDirs []string, jobs *[
 		}
 	}
 
+	numGenerated := 0
 	for _, key := range keys {
+		if numGenerated >= 15 {
+			break
+		}
 		level1Callers := source.GetCallers(key)
 		level1Callees := source.GetCallees(key)
 
 		if len(level1Callers) == 0 && len(level1Callees) == 0 {
 			continue
 		}
+		numGenerated++
 
 		// Collect Level 2 callers
 		level2Callers := make(map[string][]string)
@@ -1068,7 +1073,11 @@ func generateTimingDiagrams(source *store.Source, outputDirs []string, jobs *[]D
 		}
 	}
 
+	numGenerated := 0
 	for _, s := range structs {
+		if numGenerated >= 15 {
+			break
+		}
 		methods := source.GetStructMethods(s.Name)
 		hasStateChange := false
 		for _, m := range methods {
@@ -1082,6 +1091,7 @@ func generateTimingDiagrams(source *store.Source, outputDirs []string, jobs *[]D
 		if !hasStateChange {
 			continue
 		}
+		numGenerated++
 
 		// 1. Find constructors for this struct
 		var constructorName string
@@ -1276,10 +1286,15 @@ func generateTypeGraphs(source *store.Source, outputDirs []string, jobs *[]Diagr
 		}
 	}
 
+	numGenerated := 0
 	for _, s := range structs {
+		if numGenerated >= 15 {
+			break
+		}
 		sCopy := s // Capture loop variable
 		pngPath := filepath.Join(imagesDir, fmt.Sprintf("%s_type_graph.png", sCopy.Name))
 		htmlName := fmt.Sprintf("%s_type.html", sCopy.Name)
+		numGenerated++
 
 		var dot bytes.Buffer
 		dot.WriteString("digraph G {\n")

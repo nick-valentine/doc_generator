@@ -1,0 +1,13 @@
+concurrency = 12
+
+[input]
+directory = "../playtranslate"
+ignore = ["vendor", ".git", ".gopath", "venv", "__pycache__"]
+
+[[output]]
+format = "html"
+directory = "docs/playtranslate"
+
+[[output]]
+format = "markdown"
+directory = "docs/playtranslate_md"

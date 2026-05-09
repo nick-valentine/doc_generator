@@ -1344,12 +1344,16 @@ func (hg *HTMLGenerator) Generate(source *store.Source, outputDir string) error 
 		if len(pkgStructs) > 0 {
 			pkgBody.WriteString(`<h2 style="margin: 2.5rem 0 1.2rem 0; color: var(--text-primary); font-size: 1.5rem; border-left: 4px solid var(--accent-color); padding-left: 0.6rem;">🧱 Structs</h2>`)
 			for _, s := range pkgStructs {
+				relationsText := ""
+				if len(s.Relations) > 0 {
+					relationsText = fmt.Sprintf(` <span style="font-size: 0.95rem; color: var(--text-secondary); font-weight: normal;">extends %s</span>`, strings.Join(s.Relations, ", "))
+				}
 				pkgBody.WriteString(fmt.Sprintf(`
 				<div class="card" id="struct_%s" style="scroll-margin-top: 2rem; margin-bottom: 2rem;">
 					<div class="card-title" style="font-size: 1.3rem; border-bottom: 1px solid var(--border-color); padding-bottom: 0.5rem; margin-bottom: 1rem; color: var(--accent-color); display: flex; justify-content: space-between; align-items: center;">
-						<span>struct %s</span>
+						<span>struct %s%s</span>
 						<span style="font-size: 0.85rem; color: var(--text-secondary); font-family: monospace; font-weight: normal;">%s:%d</span>
-					</div>`, s.Name, s.Name, s.File, s.Line))
+					</div>`, s.Name, s.Name, relationsText, s.File, s.Line))
 
 				if s.Doc != "" {
 					pkgBody.WriteString(fmt.Sprintf(`<div class="docblock" style="margin-bottom: 1.5rem; padding: 0.8rem 1rem; background: rgba(255,255,255,0.02); border-left: 3px solid var(--accent-color); border-radius: 0 4px 4px 0;">%s</div>`, renderMarkdownToHTML(s.Doc)))
@@ -1447,12 +1451,16 @@ func (hg *HTMLGenerator) Generate(source *store.Source, outputDir string) error 
 		if len(pkgInterfaces) > 0 {
 			pkgBody.WriteString(`<h2 style="margin: 2.5rem 0 1.2rem 0; color: var(--text-primary); font-size: 1.5rem; border-left: 4px solid var(--accent-color); padding-left: 0.6rem;">🔌 Interfaces</h2>`)
 			for _, i := range pkgInterfaces {
+				relationsText := ""
+				if len(i.Relations) > 0 {
+					relationsText = fmt.Sprintf(` <span style="font-size: 0.95rem; color: var(--text-secondary); font-weight: normal;">extends %s</span>`, strings.Join(i.Relations, ", "))
+				}
 				pkgBody.WriteString(fmt.Sprintf(`
 				<div class="card" id="interface_%s" style="scroll-margin-top: 2rem; margin-bottom: 2rem;">
 					<div class="card-title" style="font-size: 1.3rem; border-bottom: 1px solid var(--border-color); padding-bottom: 0.5rem; margin-bottom: 1rem; color: var(--accent-color); display: flex; justify-content: space-between; align-items: center;">
-						<span>interface %s</span>
+						<span>interface %s%s</span>
 						<span style="font-size: 0.85rem; color: var(--text-secondary); font-family: monospace; font-weight: normal;">%s:%d</span>
-					</div>`, i.Name, i.Name, i.File, i.Line))
+					</div>`, i.Name, i.Name, relationsText, i.File, i.Line))
 
 				if i.Doc != "" {
 					pkgBody.WriteString(fmt.Sprintf(`<div class="docblock" style="padding: 0.8rem 1rem; background: rgba(255,255,255,0.02); border-left: 3px solid var(--accent-color); border-radius: 0 4px 4px 0;">%s</div>`, renderMarkdownToHTML(i.Doc)))

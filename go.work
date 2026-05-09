@@ -1,7 +1,10 @@
-go 1.22.0
+go 1.23.0
 
 use (
 	.
 	./plugins/parsers/go
 	./plugins/parsers/odin
+	./plugins/parsers/java
+	./plugins/parsers/python
+	./plugins/parsers/kotlin
 )

@@ -1,0 +1,16 @@
+concurrency = 12
+
+[input]
+directory = "../hadoop/hadoop-common-project/hadoop-common/src/main/java/org/apache/hadoop/fs"
+ignore = [
+    "target",
+    "test"
+]
+
+[[output]]
+format = "html"
+directory = "docs/hadoop"
+
+[[output]]
+format = "markdown"
+directory = "docs/hadoop_md"
