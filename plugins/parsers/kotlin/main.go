@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	tree_sitter "github.com/tree-sitter/go-tree-sitter"
-	tree_sitter_java "github.com/tree-sitter/tree-sitter-java/bindings/go"
+	tree_sitter_kotlin "github.com/tree-sitter-grammars/tree-sitter-kotlin/bindings/go"
 )
 
 // Parser is the exported parser implementation
@@ -14,7 +14,7 @@ var Parser store.Parser = &KotlinParser{}
 // Extensions is the list of file extensions this parser handles
 var Extensions = []string{".kt"}
 
-// NodeSource extracts the raw source string corresponding to the start and end byte of a Tree-Sitter Node.
+// NodeSource extracts raw source string for node
 func NodeSource(source []byte, node *tree_sitter.Node) string {
 	if node == nil {
 		return ""
@@ -22,36 +22,38 @@ func NodeSource(source []byte, node *tree_sitter.Node) string {
 	return string(source[node.StartByte():node.EndByte()])
 }
 
-// KotlinParser implements the store.Parser interface to extract declarations from Kotlin files.
 type KotlinParser struct {
 	FileName string
 	File     []byte
 	Package  string
 }
 
-// Parse extracts all classes, functions, and call graphs from the Kotlin file.
 func (kp *KotlinParser) Parse(filePath string, fileContent []byte, source *store.Source) error {
 	kp.FileName = filePath
 	kp.File = fileContent
+	kp.Package = "main" // Default
 	source.AddFile(kp.FileName)
 
 	parser := tree_sitter.NewParser()
 	defer parser.Close()
-	parser.SetLanguage(tree_sitter.NewLanguage(tree_sitter_java.Language()))
+	parser.SetLanguage(tree_sitter.NewLanguage(tree_sitter_kotlin.Language()))
 
 	tree := parser.Parse(kp.File, nil)
 	defer tree.Close()
 
 	root := tree.RootNode()
 
-	// Find package name: Look for package keyword followed by scoped identifier/identifier
-	// We can also fallback to finding a line with "package" prefix
-	lines := strings.Split(string(kp.File), "\n")
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "package ") {
-			kp.Package = strings.TrimSuffix(strings.TrimPrefix(trimmed, "package "), ";")
-			kp.Package = strings.TrimSpace(kp.Package)
+	// 1. Fast scan for package header at root
+	for i := 0; i < int(root.ChildCount()); i++ {
+		child := root.Child(uint(i))
+		if child != nil && child.Kind() == "package_header" {
+			for j := 0; j < int(child.ChildCount()); j++ {
+				pChild := child.Child(uint(j))
+				if pChild != nil && pChild.Kind() == "qualified_identifier" {
+					kp.Package = strings.TrimSpace(NodeSource(kp.File, pChild))
+					break
+				}
+			}
 			source.AddSymbol(store.Symbol{
 				Name:    kp.Package,
 				Kind:    "package",
@@ -62,198 +64,329 @@ func (kp *KotlinParser) Parse(filePath string, fileContent []byte, source *store
 			break
 		}
 	}
-	if kp.Package == "" {
-		kp.Package = "main"
-	}
 
+	// 2. Recursive traversal with strict scoping
 	kp.parseNode(root, "", source)
+
 	return nil
 }
 
-// parseNode is a recursive helper that traverses the AST, dispatching recognized declarations.
-func (kp *KotlinParser) parseNode(node *tree_sitter.Node, currentClass string, source *store.Source) {
+func (kp *KotlinParser) parseNode(node *tree_sitter.Node, parent string, source *store.Source) {
 	if node == nil {
 		return
 	}
 
-	nextClass := currentClass
 	kind := node.Kind()
 
-	// 1. Class declarations
-	if kind == "class_declaration" || kind == "interface_declaration" {
-		nodeText := NodeSource(kp.File, node)
-		className := ""
-		fields := strings.Fields(strings.TrimSpace(nodeText))
-		for idx, field := range fields {
-			if (field == "class" || field == "interface") && idx+1 < len(fields) {
-				className = fields[idx+1]
-				break
+	// Handle Class / Object / Interface
+	if kind == "class_declaration" || kind == "interface_declaration" || kind == "object_declaration" || kind == "companion_object" {
+		name := ""
+		if kind == "companion_object" {
+			name = "Companion"
+		} else {
+			// Find direct identifier
+			for i := 0; i < int(node.ChildCount()); i++ {
+				c := node.Child(uint(i))
+				if c != nil && c.Kind() == "identifier" {
+					name = NodeSource(kp.File, c)
+					break
+				}
 			}
 		}
-		if idx := strings.Index(className, ":"); idx != -1 {
-			className = className[:idx]
-		}
-		if idx := strings.Index(className, "{"); idx != -1 {
-			className = className[:idx]
-		}
-		if idx := strings.Index(className, "("); idx != -1 {
-			className = className[:idx]
-		}
-		className = strings.TrimSpace(className)
 
-		if className != "" {
-			nextClass = className
-			doc := kp.getLeadingComment(node)
-			cleanedDoc, aud, comp := parseAndCleanTags(doc)
-			relations := extractKotlinRelations(nodeText)
+		if name != "" {
+			symKind := store.SymStruct
+			if kind == "interface_declaration" {
+				symKind = store.SymInterface
+			}
 
-			kindToUse := store.SymStruct
-			for _, f := range fields {
-				if f == "interface" {
-					kindToUse = store.SymInterface
+			// User Request: Scope companion / nested objects to their owner's namespace.
+			storedName := name
+			if parent != "" {
+				storedName = parent + "." + name
+			}
+
+			var relations []string
+			// Look for delegation_specifiers (inheritance)
+			for i := 0; i < int(node.ChildCount()); i++ {
+				c := node.Child(uint(i))
+				if c != nil && c.Kind() == "delegation_specifiers" {
+					relations = kp.extractRelations(c)
 					break
 				}
 			}
 
+			doc := kp.getLeadingComment(node)
+			cleanedDoc, aud, comp := parseAndCleanTags(doc)
+
+			memSize := kp.calculateShallowSize(node)
+
 			source.AddSymbol(store.Symbol{
-				Name:          nextClass,
-				Kind:          kindToUse,
+				Name:          storedName,
+				Kind:          symKind,
+				Parent:        parent,
 				File:          kp.FileName,
 				Line:          int(node.StartPosition().Row + 1),
+				Package:       kp.Package,
 				Doc:           cleanedDoc,
 				Audience:      aud,
 				Compatibility: comp,
-				Package:       kp.Package,
 				Relations:     relations,
+				MemorySize:    memSize,
 			})
-		}
-	} else {
-		// Custom scanning of text for Kotlin specific constructs (like class/fun keywords)
-		// when wrapped in ERROR nodes or not fully parsed by tree-sitter-java
-		nodeText := NodeSource(kp.File, node)
-		if strings.HasPrefix(strings.TrimSpace(nodeText), "class ") || strings.HasPrefix(strings.TrimSpace(nodeText), "interface ") {
-			fields := strings.Fields(strings.TrimSpace(nodeText))
-			className := ""
-			for idx, field := range fields {
-				if (field == "class" || field == "interface") && idx+1 < len(fields) {
-					className = fields[idx+1]
-					break
-				}
-			}
-			if idx := strings.Index(className, ":"); idx != -1 {
-				className = className[:idx]
-			}
-			if idx := strings.Index(className, "{"); idx != -1 {
-				className = className[:idx]
-			}
-			if idx := strings.Index(className, "("); idx != -1 {
-				className = className[:idx]
-			}
-			className = strings.TrimSpace(className)
 
-			if className != "" {
-				relations := extractKotlinRelations(nodeText)
-				// Avoid duplicating
-				exists := false
-				for i, sym := range source.Symbols {
-					if sym.Name == className && sym.File == kp.FileName {
-						exists = true
-						if len(source.Symbols[i].Relations) == 0 && len(relations) > 0 {
-							source.Symbols[i].Relations = relations
-						}
-						break
+			// Traverse children with NEW context (scoped to this class) using storedName as the parent context
+			for i := 0; i < int(node.ChildCount()); i++ {
+				c := node.Child(uint(i))
+				if c == nil { continue }
+				if c.Kind() == "primary_constructor" {
+					kp.parsePrimaryConstructor(c, storedName, source)
+				} else if c.Kind() == "class_body" {
+					// Traverse class body elements with fully qualified storedName
+					for j := 0; j < int(c.ChildCount()); j++ {
+						kp.parseNode(c.Child(uint(j)), storedName, source)
 					}
 				}
-				if !exists {
-					kindToUse := store.SymStruct
-					for _, f := range fields {
-						if f == "interface" {
-							kindToUse = store.SymInterface
-							break
-						}
-					}
-					nextClass = className
-					source.AddSymbol(store.Symbol{
-						Name:      className,
-						Kind:      kindToUse,
-						File:      kp.FileName,
-						Line:      int(node.StartPosition().Row + 1),
-						Package:   kp.Package,
-						Relations: relations,
-					})
-				}
 			}
-		} else if strings.HasPrefix(strings.TrimSpace(nodeText), "fun ") {
-			fields := strings.Fields(strings.TrimSpace(nodeText))
-			if len(fields) > 1 {
-				funcName := fields[1]
-				if idx := strings.Index(funcName, "("); idx != -1 {
-					funcName = funcName[:idx]
-				}
-				funcName = strings.TrimSpace(funcName)
-
-				exists := false
-				fullName := funcName
-				if currentClass != "" {
-					fullName = currentClass + "." + funcName
-				}
-				for _, sym := range source.Symbols {
-					if sym.Name == fullName && sym.File == kp.FileName {
-						exists = true
-						break
-					}
-				}
-				if !exists && funcName != "" {
-					doc := kp.getLeadingComment(node)
-					cleanedDoc, aud, comp := parseAndCleanTags(doc)
-
-					complexity := kp.getComplexity(node) + 1
-					startRow := node.StartPosition().Row
-					endRow := node.EndPosition().Row
-					lineCount := int(endRow - startRow + 1)
-
-					kindSym := store.SymFunction
-					if currentClass != "" {
-						kindSym = store.SymMethod
-					}
-
-					source.AddSymbol(store.Symbol{
-						Name:          fullName,
-						Kind:          kindSym,
-						File:          kp.FileName,
-						Line:          int(node.StartPosition().Row + 1),
-						Doc:           cleanedDoc,
-						Audience:      aud,
-						Compatibility: comp,
-						Package:       kp.Package,
-						Parent:        currentClass,
-						LineCount:     lineCount,
-						Complexity:    complexity,
-					})
-
-					caller := fullName
-					if kp.Package != "" && kp.Package != "main" {
-						caller = kp.Package + "." + caller
-					}
-					kp.findCalls(node, caller, source)
-				}
-			}
+			return // Handled recursively
 		}
 	}
 
-	count := int(node.ChildCount())
-	for i := 0; i < count; i++ {
-		kp.parseNode(node.Child(uint(i)), nextClass, source)
+	// Handle Function
+	if kind == "function_declaration" {
+		name := ""
+		for i := 0; i < int(node.ChildCount()); i++ {
+			c := node.Child(uint(i))
+			if c != nil && c.Kind() == "identifier" {
+				name = NodeSource(kp.File, c)
+				break
+			}
+		}
+
+		if name != "" {
+			params := ""
+			returns := ""
+			isAsync := false
+			for i := 0; i < int(node.ChildCount()); i++ {
+				c := node.Child(uint(i))
+				if c == nil { continue }
+				if c.Kind() == "function_value_parameters" {
+					params = NodeSource(kp.File, c)
+				} else if c.Kind() == "user_type" || c.Kind() == "nullable_type" {
+					returns = NodeSource(kp.File, c)
+				} else if c.Kind() == "modifiers" {
+					// Check for 'suspend' in function declaration
+					modTxt := NodeSource(kp.File, c)
+					if strings.Contains(modTxt, "suspend") {
+						isAsync = true
+					}
+				}
+			}
+
+			doc := kp.getLeadingComment(node)
+			cleanedDoc, aud, comp := parseAndCleanTags(doc)
+
+			symKind := store.SymFunction
+			if parent != "" {
+				symKind = store.SymMethod
+			}
+
+			source.AddSymbol(store.Symbol{
+				Name:          name,
+				Kind:          symKind,
+				Parent:        parent,
+				File:          kp.FileName,
+				Line:          int(node.StartPosition().Row + 1),
+				Package:       kp.Package,
+				Params:        params,
+				Returns:       returns,
+				Doc:           cleanedDoc,
+				Audience:      aud,
+				Compatibility: comp,
+				Complexity:    1 + kp.getComplexity(node),
+				IsAsync:       isAsync,
+				SpawnsThread:  kp.hasThreadCreation(node),
+			})
+
+			// Extract call graph
+			fullName := name
+			if parent != "" {
+				fullName = parent + "." + name
+			}
+			if kp.Package != "" && kp.Package != "main" {
+				fullName = kp.Package + "." + fullName
+			}
+			kp.findCalls(node, fullName, source)
+			return
+		}
+	}
+
+	// Handle Field/Property
+	if kind == "property_declaration" {
+		varName := ""
+		varType := ""
+		// Look for variable_declaration inside property
+		for i := 0; i < int(node.ChildCount()); i++ {
+			c := node.Child(uint(i))
+			if c != nil && c.Kind() == "variable_declaration" {
+				for j := 0; j < int(c.ChildCount()); j++ {
+					vc := c.Child(uint(j))
+					if vc != nil && vc.Kind() == "identifier" {
+						varName = NodeSource(kp.File, vc)
+					} else if vc != nil && (vc.Kind() == "user_type" || vc.Kind() == "nullable_type") {
+						varType = NodeSource(kp.File, vc)
+					}
+				}
+				break
+			}
+		}
+
+		if varName != "" {
+			source.AddSymbol(store.Symbol{
+				Name:    varName,
+				Kind:    store.SymField,
+				Parent:  parent,
+				File:    kp.FileName,
+				Line:    int(node.StartPosition().Row + 1),
+				Package: kp.Package,
+				Type:    varType,
+			})
+			return
+		}
+	}
+
+	// Generic recursive traversal for other nodes at root or unhandled scopes
+	for i := 0; i < int(node.ChildCount()); i++ {
+		kp.parseNode(node.Child(uint(i)), parent, source)
 	}
 }
 
-// getLeadingComment finds contiguous comment nodes preceding the node.
+func (kp *KotlinParser) parsePrimaryConstructor(node *tree_sitter.Node, parentClass string, source *store.Source) {
+	// Look for class_parameters -> class_parameter
+	for i := 0; i < int(node.ChildCount()); i++ {
+		c := node.Child(uint(i))
+		if c == nil { continue }
+		if c.Kind() == "class_parameters" {
+			for j := 0; j < int(c.ChildCount()); j++ {
+				p := c.Child(uint(j))
+				if p != nil && p.Kind() == "class_parameter" {
+					// Only extract as property if it defines 'val' or 'var'
+					hasMod := false
+					propName := ""
+					propType := ""
+					for k := 0; k < int(p.ChildCount()); k++ {
+						pc := p.Child(uint(k))
+						if pc == nil { continue }
+						if pc.Kind() == "val" || pc.Kind() == "var" {
+							hasMod = true
+						} else if pc.Kind() == "identifier" {
+							propName = NodeSource(kp.File, pc)
+						} else if pc.Kind() == "user_type" || pc.Kind() == "nullable_type" {
+							propType = NodeSource(kp.File, pc)
+						}
+					}
+					if hasMod && propName != "" {
+						source.AddSymbol(store.Symbol{
+							Name:    propName,
+							Kind:    store.SymField,
+							Parent:  parentClass,
+							File:    kp.FileName,
+							Line:    int(p.StartPosition().Row + 1),
+							Package: kp.Package,
+							Type:    propType,
+						})
+					}
+				}
+			}
+		}
+	}
+}
+
+func (kp *KotlinParser) extractRelations(node *tree_sitter.Node) []string {
+	var relations []string
+	// Iterate delegation_specifier children
+	for i := 0; i < int(node.ChildCount()); i++ {
+		c := node.Child(uint(i))
+		if c != nil && c.Kind() == "delegation_specifier" {
+			// Deep search for first identifier inside user_type
+			target := ""
+			kp.walkToKind(c, "user_type", func(ut *tree_sitter.Node) {
+				for j := 0; j < int(ut.ChildCount()); j++ {
+					utc := ut.Child(uint(j))
+					if utc != nil && utc.Kind() == "identifier" {
+						target = NodeSource(kp.File, utc)
+						break
+					}
+				}
+			})
+			if target != "" {
+				relations = append(relations, target)
+			}
+		}
+	}
+	return relations
+}
+
+func (kp *KotlinParser) walkToKind(node *tree_sitter.Node, kind string, cb func(*tree_sitter.Node)) {
+	if node == nil { return }
+	if node.Kind() == kind {
+		cb(node)
+		return
+	}
+	for i := 0; i < int(node.ChildCount()); i++ {
+		kp.walkToKind(node.Child(uint(i)), kind, cb)
+	}
+}
+
+func (kp *KotlinParser) findCalls(node *tree_sitter.Node, callerName string, source *store.Source) {
+	if node == nil { return }
+
+	if node.Kind() == "call_expression" {
+		// Call often has identifier child directly for simple call
+		for i := 0; i < int(node.ChildCount()); i++ {
+			c := node.Child(uint(i))
+			if c != nil && c.Kind() == "identifier" {
+				source.AddCall(callerName, NodeSource(kp.File, c))
+				break
+			} else if c != nil && c.Kind() == "navigation_expression" {
+				// Chained calls obj.method()
+				kp.extractNavigationCall(c, callerName, source)
+				break
+			}
+		}
+	}
+	
+	for i := 0; i < int(node.ChildCount()); i++ {
+		kp.findCalls(node.Child(uint(i)), callerName, source)
+	}
+}
+
+func (kp *KotlinParser) extractNavigationCall(node *tree_sitter.Node, caller string, source *store.Source) {
+	// Typically node has navigation_suffix which contains simple_identifier
+	// For simplicity, we can concatenate children or extract elements.
+	// Just capture raw navigation text minus params as a call!
+	source.AddCall(caller, NodeSource(kp.File, node))
+}
+
+func (kp *KotlinParser) getComplexity(node *tree_sitter.Node) int {
+	if node == nil { return 0 }
+	complexity := 0
+	k := node.Kind()
+	if k == "if_expression" || k == "for_statement" || k == "while_statement" || k == "when_expression" || k == "catch_clause" {
+		complexity++
+	}
+	for i := 0; i < int(node.ChildCount()); i++ {
+		complexity += kp.getComplexity(node.Child(uint(i)))
+	}
+	return complexity
+}
+
 func (kp *KotlinParser) getLeadingComment(node *tree_sitter.Node) string {
 	var comments []string
 	prev := node.PrevSibling()
 	for prev != nil {
 		kind := prev.Kind()
-		if kind == "block_comment" || kind == "line_comment" || kind == "comment" {
+		if strings.Contains(kind, "comment") {
 			txt := strings.TrimSpace(NodeSource(kp.File, prev))
 			txt = strings.TrimPrefix(txt, "//")
 			txt = strings.TrimPrefix(txt, "/*")
@@ -262,9 +395,7 @@ func (kp *KotlinParser) getLeadingComment(node *tree_sitter.Node) string {
 			for k, l := range lines {
 				lines[k] = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(l), "*"))
 			}
-			txt = strings.Join(lines, "\n")
-			txt = strings.TrimSpace(txt)
-			comments = append([]string{txt}, comments...)
+			comments = append([]string{strings.Join(lines, "\n")}, comments...)
 			prev = prev.PrevSibling()
 		} else if prev.StartByte() == node.StartByte() {
 			prev = prev.PrevSibling()
@@ -300,110 +431,110 @@ func parseAndCleanTags(doc string) (cleanedDoc string, audience []string, compat
 	return cleanedDoc, audience, compatibility
 }
 
-// findCalls recursively extracts all method calls in Kotlin.
-func (kp *KotlinParser) findCalls(node *tree_sitter.Node, callerName string, source *store.Source) {
-	if node == nil {
-		return
+func calculateKotlinTypeSize(typeStr string) int {
+	t := strings.TrimSpace(typeStr)
+	if strings.HasSuffix(t, "?") {
+		// Nullable types usually result in boxed references, 8 bytes
+		return 8
 	}
+	switch t {
+	case "Byte", "Boolean":
+		return 1
+	case "Short", "Char":
+		return 2
+	case "Int", "Float":
+		return 4
+	case "Long", "Double":
+		return 8
+	}
+	// Arrays and custom Objects are references (8 bytes)
+	return 8
+}
 
-	// In Kotlin, we look for method_invocation or any identifiers followed by '('
-	if node.Kind() == "method_invocation" {
-		nameNode := node.ChildByFieldName("name")
-		if nameNode != nil {
-			methodName := NodeSource(kp.File, nameNode)
-			objectNode := node.ChildByFieldName("object")
-			if objectNode != nil {
-				objectName := NodeSource(kp.File, objectNode)
-				source.AddCall(callerName, objectName+"."+methodName)
-			} else {
-				source.AddCall(callerName, methodName)
+func (kp *KotlinParser) hasThreadCreation(node *tree_sitter.Node) bool {
+	if node == nil { return false }
+	
+	if node.Kind() == "call_expression" {
+		for i := 0; i < int(node.ChildCount()); i++ {
+			c := node.Child(uint(i))
+			if c != nil && c.Kind() == "identifier" {
+				ident := NodeSource(kp.File, c)
+				if ident == "thread" || ident == "launch" || ident == "async" || ident == "runBlocking" {
+					return true
+				}
 			}
 		}
-	} else {
-		kind := node.Kind()
-		if kind != "class_declaration" && kind != "interface_declaration" && !strings.HasPrefix(strings.TrimSpace(NodeSource(kp.File, node)), "fun ") {
-			nodeText := NodeSource(kp.File, node)
-			if strings.Contains(nodeText, "(") {
-				idx := strings.Index(nodeText, "(")
-				prefix := strings.TrimSpace(nodeText[:idx])
-				// Get the last field of prefix (e.g. obj.method)
-				parts := strings.Fields(prefix)
-				if len(parts) > 0 {
-					potentialCall := parts[len(parts)-1]
-					potentialCall = strings.TrimSpace(potentialCall)
-					// Filter out keywords
-					if potentialCall != "if" && potentialCall != "for" && potentialCall != "while" && potentialCall != "when" && potentialCall != "catch" && potentialCall != "fun" && potentialCall != "class" && potentialCall != "return" {
-						if potentialCall != "" && !strings.Contains(potentialCall, " ") && !strings.Contains(potentialCall, "(") && !strings.Contains(potentialCall, ")") {
-							source.AddCall(callerName, potentialCall)
+	}
+	
+	for i := 0; i < int(node.ChildCount()); i++ {
+		if kp.hasThreadCreation(node.Child(uint(i))) {
+			return true
+		}
+	}
+	return false
+}
+
+func (kp *KotlinParser) calculateShallowSize(node *tree_sitter.Node) int {
+	total := 0
+	for i := 0; i < int(node.ChildCount()); i++ {
+		child := node.Child(uint(i))
+		if child == nil { continue }
+		
+		if child.Kind() == "primary_constructor" {
+			total += kp.sumConstructorSize(child)
+		} else if child.Kind() == "class_body" {
+			for j := 0; j < int(child.ChildCount()); j++ {
+				bc := child.Child(uint(j))
+				if bc != nil && bc.Kind() == "property_declaration" {
+					total += kp.sumPropertySize(bc)
+				}
+			}
+		}
+	}
+	return total
+}
+
+func (kp *KotlinParser) sumConstructorSize(node *tree_sitter.Node) int {
+	total := 0
+	for i := 0; i < int(node.ChildCount()); i++ {
+		c := node.Child(uint(i))
+		if c != nil && c.Kind() == "class_parameters" {
+			for j := 0; j < int(c.ChildCount()); j++ {
+				p := c.Child(uint(j))
+				if p != nil && p.Kind() == "class_parameter" {
+					hasMod := false
+					pType := ""
+					for k := 0; k < int(p.ChildCount()); k++ {
+						pc := p.Child(uint(k))
+						if pc == nil { continue }
+						if pc.Kind() == "val" || pc.Kind() == "var" {
+							hasMod = true
+						} else if pc.Kind() == "user_type" || pc.Kind() == "nullable_type" {
+							pType = NodeSource(kp.File, pc)
 						}
+					}
+					if hasMod {
+						total += calculateKotlinTypeSize(pType)
 					}
 				}
 			}
 		}
 	}
-
-	count := int(node.ChildCount())
-	for i := 0; i < count; i++ {
-		kp.findCalls(node.Child(uint(i)), callerName, source)
-	}
+	return total
 }
 
-// getComplexity estimates complexity based on control statements.
-func (kp *KotlinParser) getComplexity(node *tree_sitter.Node) int {
-	if node == nil {
-		return 0
-	}
-	complexity := 0
-	nodeText := NodeSource(kp.File, node)
-	if strings.Contains(nodeText, "if ") || strings.Contains(nodeText, "for ") || strings.Contains(nodeText, "while ") || strings.Contains(nodeText, "when ") || strings.Contains(nodeText, "catch ") {
-		complexity++
-	}
-	count := int(node.ChildCount())
-	for i := 0; i < count; i++ {
-		complexity += kp.getComplexity(node.Child(uint(i)))
-	}
-	return complexity
-}
-
-func extractKotlinRelations(nodeText string) []string {
-	if idxBrace := strings.Index(nodeText, "{"); idxBrace != -1 {
-		nodeText = nodeText[:idxBrace]
-	}
-	// Find the colon outside any parenthesis
-	idx := -1
-	parenDepth := 0
-	for i, char := range nodeText {
-		if char == '(' {
-			parenDepth++
-		} else if char == ')' {
-			parenDepth--
-		} else if char == ':' && parenDepth == 0 {
-			idx = i
-			break
-		}
-	}
-
-	var relations []string
-	if idx != -1 {
-		rem := nodeText[idx+1:]
-		parts := strings.Split(rem, ",")
-		for _, part := range parts {
-			part = strings.TrimSpace(part)
-			if idxParen := strings.Index(part, "("); idxParen != -1 {
-				part = part[:idxParen]
-			}
-			part = strings.TrimSpace(part)
-			if idxGen := strings.Index(part, "<"); idxGen != -1 {
-				part = part[:idxGen]
-			}
-			part = strings.TrimSpace(part)
-			part = strings.TrimFunc(part, func(r rune) bool {
-				return r == ')' || r == '(' || r == ',' || r == ' '
-			})
-			if part != "" && !strings.Contains(part, " ") {
-				relations = append(relations, part)
+func (kp *KotlinParser) sumPropertySize(node *tree_sitter.Node) int {
+	for i := 0; i < int(node.ChildCount()); i++ {
+		c := node.Child(uint(i))
+		if c != nil && c.Kind() == "variable_declaration" {
+			for j := 0; j < int(c.ChildCount()); j++ {
+				vc := c.Child(uint(j))
+				if vc != nil && (vc.Kind() == "user_type" || vc.Kind() == "nullable_type") {
+					return calculateKotlinTypeSize(NodeSource(kp.File, vc))
+				}
 			}
 		}
 	}
-	return relations
+	// Default reference size for inferred property or unknown
+	return 8
 }

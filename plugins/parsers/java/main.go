@@ -22,6 +22,17 @@ func NodeSource(source []byte, node *tree_sitter.Node) string {
 	return string(source[node.StartByte():node.EndByte()])
 }
 
+func isAsyncJava(node *tree_sitter.Node, returns string, fileContent []byte) bool {
+	if strings.Contains(returns, "Future") || strings.Contains(returns, "Mono") || strings.Contains(returns, "Flux") || strings.Contains(returns, "CompletionStage") {
+		return true
+	}
+	txt := NodeSource(fileContent, node)
+	if strings.Contains(txt, "@Async") {
+		return true
+	}
+	return false
+}
+
 // JavaParser implements the store.Parser interface to extract declarations from Java files.
 type JavaParser struct {
 	FileName string
@@ -205,6 +216,8 @@ func (jp *JavaParser) handleClassOrInterface(node *tree_sitter.Node, source *sto
 		kind = store.SymInterface
 	}
 
+	memSize := jp.calculateShallowSize(node)
+
 	source.AddSymbol(store.Symbol{
 		Name:          name,
 		Kind:          kind,
@@ -214,6 +227,7 @@ func (jp *JavaParser) handleClassOrInterface(node *tree_sitter.Node, source *sto
 		Audience:      aud,
 		Compatibility: comp,
 		Package:       jp.Package,
+		MemorySize:    memSize,
 	})
 
 	return name
@@ -262,6 +276,12 @@ func (jp *JavaParser) handleMethod(node *tree_sitter.Node, parentClass string, s
 		kind = store.SymMethod // Constructors are registered as methods
 	}
 
+	spawnsThread := false
+	bodyNode := node.ChildByFieldName("body")
+	if bodyNode != nil {
+		spawnsThread = jp.hasThreadCreation(bodyNode)
+	}
+
 	source.AddSymbol(store.Symbol{
 		Name:          name,
 		Kind:          kind,
@@ -276,9 +296,10 @@ func (jp *JavaParser) handleMethod(node *tree_sitter.Node, parentClass string, s
 		Returns:       returns,
 		LineCount:     lineCount,
 		Complexity:    complexity,
+		IsAsync:       isAsyncJava(node, returns, jp.File),
+		SpawnsThread:  spawnsThread,
 	})
 
-	bodyNode := node.ChildByFieldName("body")
 	if bodyNode != nil {
 		caller := name
 		if parentClass != "" {
@@ -350,4 +371,104 @@ func getComplexity(node *tree_sitter.Node) int {
 		complexity += getComplexity(node.Child(uint(i)))
 	}
 	return complexity
+}
+
+func calculateJavaTypeSize(t string) int {
+	t = strings.TrimSpace(t)
+	switch t {
+	case "byte", "boolean":
+		return 1
+	case "short", "char":
+		return 2
+	case "int", "float":
+		return 4
+	case "long", "double":
+		return 8
+	}
+	// References
+	return 8
+}
+
+func (jp *JavaParser) hasThreadCreation(node *tree_sitter.Node) bool {
+	if node == nil { return false }
+	
+	kind := node.Kind()
+	if kind == "object_creation_expression" {
+		typeNode := node.ChildByFieldName("type")
+		if typeNode != nil {
+			tName := NodeSource(jp.File, typeNode)
+			if strings.Contains(tName, "Thread") || strings.Contains(tName, "Executor") {
+				return true
+			}
+		}
+	} else if kind == "method_invocation" {
+		nameNode := node.ChildByFieldName("name")
+		if nameNode != nil {
+			mName := NodeSource(jp.File, nameNode)
+			if mName == "start" || mName == "execute" || mName == "submit" || mName == "runAsync" {
+				return true
+			}
+		}
+	}
+
+	for i := 0; i < int(node.ChildCount()); i++ {
+		if jp.hasThreadCreation(node.Child(uint(i))) {
+			return true
+		}
+	}
+	return false
+}
+
+func (jp *JavaParser) calculateShallowSize(node *tree_sitter.Node) int {
+	total := 0
+	bodyNode := node.ChildByFieldName("body")
+	if bodyNode == nil {
+		// Find class_body child
+		for i := 0; i < int(node.ChildCount()); i++ {
+			c := node.Child(uint(i))
+			if c != nil && c.Kind() == "class_body" {
+				bodyNode = c
+				break
+			}
+		}
+	}
+	if bodyNode == nil {
+		return 0
+	}
+
+	for i := 0; i < int(bodyNode.ChildCount()); i++ {
+		c := bodyNode.Child(uint(i))
+		if c != nil && c.Kind() == "field_declaration" {
+			total += jp.sumFieldDeclarations(c)
+		}
+	}
+	return total
+}
+
+func (jp *JavaParser) sumFieldDeclarations(node *tree_sitter.Node) int {
+	typeNode := node.ChildByFieldName("type")
+	typeStr := "Object" // default fallback
+	if typeNode != nil {
+		typeStr = NodeSource(jp.File, typeNode)
+	}
+	sz := calculateJavaTypeSize(typeStr)
+	
+	declaratorCount := 0
+	var walkDeclarators func(n *tree_sitter.Node)
+	walkDeclarators = func(n *tree_sitter.Node) {
+		if n == nil { return }
+		if n.Kind() == "variable_declarator" {
+			declaratorCount++
+			return
+		}
+		for i := 0; i < int(n.ChildCount()); i++ {
+			walkDeclarators(n.Child(uint(i)))
+		}
+	}
+	walkDeclarators(node)
+	
+	if declaratorCount == 0 {
+		declaratorCount = 1
+	}
+	return sz * declaratorCount
 }

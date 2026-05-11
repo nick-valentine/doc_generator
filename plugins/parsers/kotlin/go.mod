@@ -1,11 +1,12 @@
 module doc_generator/plugins/parsers/kotlin
 
-go 1.22.0
+go 1.23.0
 
 require (
+	doc_generator v0.0.0
+	github.com/tree-sitter-grammars/tree-sitter-kotlin v1.1.0
 	github.com/tree-sitter/go-tree-sitter v0.25.0
 	github.com/tree-sitter/tree-sitter-java v0.23.5
-	doc_generator v0.0.0
 )
 
 exclude (

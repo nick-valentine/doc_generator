@@ -2,6 +2,7 @@ package main
 
 import (
 	"doc_generator/pkg/store"
+	"strconv"
 	"strings"
 
 	tree_sitter "github.com/tree-sitter/go-tree-sitter"
@@ -20,6 +21,40 @@ func NodeSource(source []byte, node *tree_sitter.Node) string {
 		return ""
 	}
 	return string(source[node.StartByte():node.EndByte()])
+}
+
+func isAsyncNode(node *tree_sitter.Node) bool {
+	if node == nil {
+		return false
+	}
+	kind := node.Kind()
+	if kind == "go_statement" || kind == "select_statement" || kind == "send_statement" || kind == "receive_expression" {
+		return true
+	}
+	count := int(node.ChildCount())
+	for i := 0; i < count; i++ {
+		if isAsyncNode(node.Child(uint(i))) {
+			return true
+		}
+	}
+	return false
+}
+
+func isThreadCreationNode(node *tree_sitter.Node) bool {
+	if node == nil {
+		return false
+	}
+	kind := node.Kind()
+	if kind == "go_statement" {
+		return true
+	}
+	count := int(node.ChildCount())
+	for i := 0; i < count; i++ {
+		if isThreadCreationNode(node.Child(uint(i))) {
+			return true
+		}
+	}
+	return false
 }
 
 // GoParser implements the store.Parser interface to extract declarations from Go files.
@@ -232,6 +267,14 @@ func (gp *GoParser) handleFunction(node *tree_sitter.Node, source *store.Source)
 	endRow := node.EndPosition().Row
 	lineCount := int(endRow - startRow + 1)
 
+	bodyNode := node.ChildByFieldName("body")
+	isAsync := false
+	spawnsThread := false
+	if bodyNode != nil {
+		isAsync = isAsyncNode(bodyNode)
+		spawnsThread = isThreadCreationNode(bodyNode)
+	}
+
 	source.AddSymbol(store.Symbol{
 		Name:          name,
 		Kind:          store.SymFunction,
@@ -245,9 +288,10 @@ func (gp *GoParser) handleFunction(node *tree_sitter.Node, source *store.Source)
 		Returns:       returns,
 		LineCount:     lineCount,
 		Complexity:    complexity,
+		IsAsync:       isAsync,
+		SpawnsThread:  spawnsThread,
 	})
 
-	bodyNode := node.ChildByFieldName("body")
 	if bodyNode != nil {
 		caller := name
 		if gp.Package != "" {
@@ -290,6 +334,14 @@ func (gp *GoParser) handleMethod(node *tree_sitter.Node, source *store.Source) {
 	endRow := node.EndPosition().Row
 	lineCount := int(endRow - startRow + 1)
 
+	bodyNode := node.ChildByFieldName("body")
+	isAsync := false
+	spawnsThread := false
+	if bodyNode != nil {
+		isAsync = isAsyncNode(bodyNode)
+		spawnsThread = isThreadCreationNode(bodyNode)
+	}
+
 	source.AddSymbol(store.Symbol{
 		Name:          name,
 		Kind:          store.SymMethod,
@@ -304,6 +356,8 @@ func (gp *GoParser) handleMethod(node *tree_sitter.Node, source *store.Source) {
 		Returns:       returns,
 		LineCount:     lineCount,
 		Complexity:    complexity,
+		IsAsync:       isAsync,
+		SpawnsThread:  spawnsThread,
 	})
 
 	callerName := name
@@ -314,7 +368,6 @@ func (gp *GoParser) handleMethod(node *tree_sitter.Node, source *store.Source) {
 		callerName = gp.Package + "." + callerName
 	}
 
-	bodyNode := node.ChildByFieldName("body")
 	if bodyNode != nil {
 		gp.findCalls(bodyNode, callerName, source)
 	}
@@ -338,6 +391,9 @@ func (gp *GoParser) handleTypeDeclaration(node *tree_sitter.Node, source *store.
 			cleanedDoc, aud, comp := parseAndCleanTags(doc)
 
 			if typeNode.Kind() == "struct_type" {
+				// Calculate struct fields size first
+				totalSize := gp.handleStructFields(typeNode, name, source)
+
 				source.AddSymbol(store.Symbol{
 					Name:          name,
 					Kind:          store.SymStruct,
@@ -347,9 +403,8 @@ func (gp *GoParser) handleTypeDeclaration(node *tree_sitter.Node, source *store.
 					Audience:      aud,
 					Compatibility: comp,
 					Package:       gp.Package,
+					MemorySize:    totalSize,
 				})
-
-				gp.handleStructFields(typeNode, name, source)
 			} else if typeNode.Kind() == "interface_type" {
 				source.AddSymbol(store.Symbol{
 					Name:          name,
@@ -366,8 +421,9 @@ func (gp *GoParser) handleTypeDeclaration(node *tree_sitter.Node, source *store.
 	}
 }
 
-// handleStructFields extracts and registers individual fields belonging to a parent struct.
-func (gp *GoParser) handleStructFields(structNode *tree_sitter.Node, structName string, source *store.Source) {
+// handleStructFields extracts and registers individual fields belonging to a parent struct, and returns calculated total bytes.
+func (gp *GoParser) handleStructFields(structNode *tree_sitter.Node, structName string, source *store.Source) int {
+	totalSize := 0
 	// Inside struct_type we have field_declaration_list
 	fieldsList := structNode.ChildByFieldName("fields")
 	if fieldsList == nil {
@@ -381,7 +437,7 @@ func (gp *GoParser) handleStructFields(structNode *tree_sitter.Node, structName 
 		}
 	}
 	if fieldsList == nil {
-		return
+		return 0
 	}
 
 	count := int(fieldsList.ChildCount())
@@ -411,8 +467,10 @@ func (gp *GoParser) handleStructFields(structNode *tree_sitter.Node, structName 
 			if typeNode != nil {
 				typeStr = NodeSource(gp.File, typeNode)
 			}
+			fieldSz := calculateGoTypeSize(typeStr)
 
 			for _, fName := range names {
+				totalSize += fieldSz
 				source.AddSymbol(store.Symbol{
 					Name:          fName,
 					Kind:          store.SymField,
@@ -428,6 +486,7 @@ func (gp *GoParser) handleStructFields(structNode *tree_sitter.Node, structName 
 			}
 		}
 	}
+	return totalSize
 }
 
 // extractReceiverType extracts the clean type identifier from receiver declaration strings.
@@ -559,4 +618,61 @@ func getComplexity(node *tree_sitter.Node) int {
 		complexity += getComplexity(node.Child(uint(i)))
 	}
 	return complexity
+}
+
+func calculateGoTypeSize(typeStr string) int {
+	typeStr = strings.TrimSpace(typeStr)
+	if typeStr == "" {
+		return 0
+	}
+	if strings.HasPrefix(typeStr, "*") {
+		return 8 // Pointer
+	}
+	if strings.HasPrefix(typeStr, "[]") {
+		return 24 // Slice: ptr + len + cap
+	}
+	if strings.HasPrefix(typeStr, "map[") {
+		return 8 // Map header ptr
+	}
+	if strings.HasPrefix(typeStr, "chan ") || strings.HasPrefix(typeStr, "<-chan") || strings.HasPrefix(typeStr, "chan<-") {
+		return 8 // Channel header ptr
+	}
+	if strings.HasPrefix(typeStr, "func(") {
+		return 8 // Func pointer
+	}
+	// Composite/Interface defaults
+	if typeStr == "error" {
+		return 16 // Interface
+	}
+
+	// Handle fixed size array like [10]int
+	if strings.HasPrefix(typeStr, "[") {
+		closeBracket := strings.Index(typeStr, "]")
+		if closeBracket != -1 {
+			numStr := typeStr[1:closeBracket]
+			sizeStr := typeStr[closeBracket+1:]
+			count, err := strconv.Atoi(numStr)
+			if err == nil {
+				return count * calculateGoTypeSize(sizeStr)
+			}
+		}
+	}
+
+	switch typeStr {
+	case "int", "uint", "uintptr", "int64", "uint64", "float64", "complex64":
+		return 8
+	case "int32", "uint32", "float32", "rune":
+		return 4
+	case "int16", "uint16":
+		return 2
+	case "int8", "uint8", "byte", "bool":
+		return 1
+	case "string":
+		return 16
+	case "complex128":
+		return 16
+	}
+	// Embedded struct or explicit type?
+	// Fallback for unknown structures or composite direct allocation estimate
+	return 8
 }

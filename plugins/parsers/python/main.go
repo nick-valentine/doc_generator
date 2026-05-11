@@ -22,6 +22,16 @@ func NodeSource(source []byte, node *tree_sitter.Node) string {
 	return string(source[node.StartByte():node.EndByte()])
 }
 
+func checkIsAsync(node *tree_sitter.Node) bool {
+	if node == nil { return false }
+	for i := 0; i < int(node.ChildCount()); i++ {
+		if node.Child(uint(i)).Kind() == "async" {
+			return true
+		}
+	}
+	return false
+}
+
 // PythonParser implements the store.Parser interface to extract declarations from Python files.
 type PythonParser struct {
 	FileName string
@@ -168,6 +178,89 @@ func (pp *PythonParser) findCalls(node *tree_sitter.Node, callerName string, sou
 	}
 }
 
+// hasThreadCreation checks if node or children spawn threads
+func (pp *PythonParser) hasThreadCreation(node *tree_sitter.Node) bool {
+	if node == nil { return false }
+	kind := node.Kind()
+
+	if kind == "call" {
+		fnNode := node.ChildByFieldName("function")
+		if fnNode != nil {
+			txt := NodeSource(pp.File, fnNode)
+			if strings.Contains(txt, "Thread") || strings.Contains(txt, "Process") || 
+			   strings.Contains(txt, "ThreadPoolExecutor") || strings.Contains(txt, "ProcessPoolExecutor") ||
+			   strings.Contains(txt, "create_task") || strings.Contains(txt, "run_in_executor") {
+				return true
+			}
+		}
+	}
+
+	for i := 0; i < int(node.ChildCount()); i++ {
+		if pp.hasThreadCreation(node.Child(uint(i))) {
+			return true
+		}
+	}
+	return false
+}
+
+// calculateShallowSize sums unique class/instance variables and sets 8 bytes each.
+func (pp *PythonParser) calculateShallowSize(node *tree_sitter.Node) int {
+	fields := make(map[string]bool)
+	bodyNode := node.ChildByFieldName("body")
+	if bodyNode == nil {
+		for i := 0; i < int(node.ChildCount()); i++ {
+			c := node.Child(uint(i))
+			if c != nil && c.Kind() == "block" {
+				bodyNode = c
+				break
+			}
+		}
+	}
+	if bodyNode == nil { return 0 }
+
+	// Pass 1: Collect top-level class attributes (e.g. x = 1)
+	for i := 0; i < int(bodyNode.ChildCount()); i++ {
+		c := bodyNode.Child(uint(i))
+		if c == nil { continue }
+		if c.Kind() == "expression_statement" {
+			assignNode := c.Child(0)
+			if assignNode != nil && assignNode.Kind() == "assignment" {
+				left := assignNode.ChildByFieldName("left")
+				if left != nil && left.Kind() == "identifier" {
+					fields[NodeSource(pp.File, left)] = true
+				}
+			}
+		} else if c.Kind() == "function_definition" {
+			// Pass 2: Scan __init__ body for self.attr = val
+			nameNode := c.ChildByFieldName("name")
+			if nameNode != nil && NodeSource(pp.File, nameNode) == "__init__" {
+				pp.extractInitFields(c, fields)
+			}
+		}
+	}
+
+	return len(fields) * 8
+}
+
+func (pp *PythonParser) extractInitFields(node *tree_sitter.Node, fields map[string]bool) {
+	if node == nil { return }
+	if node.Kind() == "assignment" {
+		left := node.ChildByFieldName("left")
+		if left != nil && left.Kind() == "attribute" {
+			objNode := left.ChildByFieldName("object")
+			if objNode != nil && NodeSource(pp.File, objNode) == "self" {
+				attrNode := left.ChildByFieldName("attribute")
+				if attrNode != nil {
+					fields[NodeSource(pp.File, attrNode)] = true
+				}
+			}
+		}
+	}
+	for i := 0; i < int(node.ChildCount()); i++ {
+		pp.extractInitFields(node.Child(uint(i)), fields)
+	}
+}
+
 // handleClass extracts and registers python classes.
 func (pp *PythonParser) handleClass(node *tree_sitter.Node, source *store.Source) string {
 	nameNode := node.ChildByFieldName("name")
@@ -179,6 +272,21 @@ func (pp *PythonParser) handleClass(node *tree_sitter.Node, source *store.Source
 	doc := pp.getDocstring(node)
 	cleanedDoc, aud, comp := parseAndCleanTags(doc)
 
+	var relations []string
+	supNode := node.ChildByFieldName("superclasses")
+	if supNode != nil {
+		for i := 0; i < int(supNode.ChildCount()); i++ {
+			child := supNode.Child(uint(i))
+			if child == nil {
+				continue
+			}
+			k := child.Kind()
+			if k == "identifier" || k == "attribute" {
+				relations = append(relations, NodeSource(pp.File, child))
+			}
+		}
+	}
+
 	source.AddSymbol(store.Symbol{
 		Name:          name,
 		Kind:          store.SymStruct,
@@ -187,6 +295,8 @@ func (pp *PythonParser) handleClass(node *tree_sitter.Node, source *store.Source
 		Doc:           cleanedDoc,
 		Audience:      aud,
 		Compatibility: comp,
+		Relations:     relations,
+		MemorySize:    pp.calculateShallowSize(node),
 	})
 
 	return name
@@ -209,6 +319,12 @@ func (pp *PythonParser) handleFunction(node *tree_sitter.Node, parentClass strin
 		params = NodeSource(pp.File, paramsNode)
 	}
 
+	var returns string
+	retNode := node.ChildByFieldName("return_type")
+	if retNode != nil {
+		returns = NodeSource(pp.File, retNode)
+	}
+
 	complexity := getComplexity(node) + 1
 	startRow := node.StartPosition().Row
 	endRow := node.EndPosition().Row
@@ -217,6 +333,12 @@ func (pp *PythonParser) handleFunction(node *tree_sitter.Node, parentClass strin
 	kind := store.SymFunction
 	if parentClass != "" {
 		kind = store.SymMethod
+	}
+
+	spawnsThread := false
+	bodyNode := node.ChildByFieldName("body")
+	if bodyNode != nil {
+		spawnsThread = pp.hasThreadCreation(bodyNode)
 	}
 
 	source.AddSymbol(store.Symbol{
@@ -229,11 +351,14 @@ func (pp *PythonParser) handleFunction(node *tree_sitter.Node, parentClass strin
 		Compatibility: comp,
 		Parent:        parentClass,
 		Params:        params,
+		Returns:       returns,
 		LineCount:     lineCount,
 		Complexity:    complexity,
+		IsAsync:       checkIsAsync(node),
+		SpawnsThread:  spawnsThread,
 	})
 
-	bodyNode := node.ChildByFieldName("body")
+	bodyNode = node.ChildByFieldName("body")
 	if bodyNode != nil {
 		caller := name
 		if parentClass != "" {
@@ -250,7 +375,7 @@ func getComplexity(node *tree_sitter.Node) int {
 	}
 	complexity := 0
 	kind := node.Kind()
-	if kind == "if_statement" || kind == "for_statement" || kind == "while_statement" || kind == "except_clause" {
+	if kind == "if_statement" || kind == "for_statement" || kind == "while_statement" || kind == "except_clause" || kind == "conditional_expression" {
 		complexity++
 	}
 	count := int(node.ChildCount())

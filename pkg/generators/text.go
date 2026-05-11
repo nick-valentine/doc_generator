@@ -95,7 +95,11 @@ func (mg *MarkdownGenerator) Generate(source *store.Source, outputDir string) er
 			if len(methods) > 0 {
 				buf.WriteString("\n#### Methods\n")
 				for _, method := range methods {
-					buf.WriteString(fmt.Sprintf("- `%s()`", method.Name))
+					asyncTag := ""
+					if method.IsAsync {
+						asyncTag = " (Async)"
+					}
+					buf.WriteString(fmt.Sprintf("- `%s()`%s", method.Name, asyncTag))
 					var meta []string
 					if len(method.Audience) > 0 {
 						meta = append(meta, fmt.Sprintf("Audience: %s", strings.Join(method.Audience, ", ")))
@@ -139,7 +143,11 @@ func (mg *MarkdownGenerator) Generate(source *store.Source, outputDir string) er
 		buf.WriteString("*No global functions documented.*\n\n")
 	} else {
 		for _, fnSym := range funcs {
-			buf.WriteString(fmt.Sprintf("### Function: `%s`\n", fnSym.Name))
+			asyncTag := ""
+			if fnSym.IsAsync {
+				asyncTag = " (Async)"
+			}
+			buf.WriteString(fmt.Sprintf("### Function: `%s` %s\n", fnSym.Name, asyncTag))
 			buf.WriteString(fmt.Sprintf("- **Location:** %s (Line %d)\n", fnSym.File, fnSym.Line))
 			if len(fnSym.Audience) > 0 {
 				buf.WriteString(fmt.Sprintf("- **Audience:** %s\n", strings.Join(fnSym.Audience, ", ")))

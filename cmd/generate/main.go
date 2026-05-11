@@ -553,21 +553,90 @@ func generateCallGraphs(source *store.Source, outputDirs []string, jobs *[]Diagr
 		dot.WriteString("    node [shape=box, style=\"filled,rounded\", color=\"#4A90E2\", fontname=\"Helvetica\", fillcolor=\"#F0F4F8\"];\n")
 		dot.WriteString("    edge [color=\"#999999\", fontname=\"Helvetica\", fontsize=10];\n")
 
-		// Highlight focal node
-		dot.WriteString(fmt.Sprintf("    \"%s\" [fillcolor=\"#4A90E2\", fontcolor=\"white\", style=\"filled,rounded,bold\"];\n", key))
+		// Collect all unique nodes referenced in graph
+		involvedNodes := make(map[string]bool)
+		involvedNodes[key] = true
+		for _, e := range callerEdges { involvedNodes[e.From] = true; involvedNodes[e.To] = true }
+		for _, e := range calleeEdges { involvedNodes[e.From] = true; involvedNodes[e.To] = true }
 
-		// Render unique callers and callees edges
+		// Define thread styling
+		threadPalette := []string{"#FEF2F2", "#FFFBEB", "#ECFDF5", "#EFF6FF", "#F5F3FF"} // soft bg tints
+		threadBorders := []string{"#EF4444", "#F59E0B", "#10B981", "#3B82F6", "#8B5CF6"} // accent colors
+		nodeThreadColor := make(map[string]int) // -1 means unset
+		
+		nextTid := 0
+		// Step 1: Seed thread initiators
+		for n := range involvedNodes {
+			if sym := source.FindSymbolByFullName(n); sym != nil && sym.SpawnsThread {
+				nodeThreadColor[n] = nextTid % len(threadPalette)
+				nextTid++
+			}
+		}
+
+		// Step 2: Propagate downstream to callees
+		dirty := true
+		for dirty {
+			dirty = false
+			for _, e := range calleeEdges {
+				if tid, has := nodeThreadColor[e.From]; has {
+					if _, exists := nodeThreadColor[e.To]; !exists {
+						nodeThreadColor[e.To] = tid
+						dirty = true
+					}
+				}
+			}
+		}
+
+		// Render styled node definitions
+		for n := range involvedNodes {
+			// Base defaults or specific thread colors
+			nodeFill := "#F0F4F8"
+			nodeBorder := "#4A90E2"
+			nodePen := "1.0"
+			nodeStyle := "filled,rounded"
+
+			if tid, has := nodeThreadColor[n]; has {
+				nodeFill = threadPalette[tid]
+				nodeBorder = threadBorders[tid]
+				nodePen = "1.5"
+				nodeStyle = "filled,rounded,dashed"
+				
+				// Highlight the actual spawner as solid
+				if sym := source.FindSymbolByFullName(n); sym != nil && sym.SpawnsThread {
+					nodeStyle = "filled,rounded,bold"
+					nodePen = "2.5"
+				}
+			}
+
+			// Critical Overwrite: Highlight focus node
+			if n == key {
+				dot.WriteString(fmt.Sprintf("    \"%s\" [fillcolor=\"#4A90E2\", fontcolor=\"white\", color=\"#1E3A8A\", style=\"filled,rounded,bold\", penwidth=2.5];\n", n))
+			} else {
+				dot.WriteString(fmt.Sprintf("    \"%s\" [fillcolor=\"%s\", color=\"%s\", style=\"%s\", penwidth=%s];\n", n, nodeFill, nodeBorder, nodeStyle, nodePen))
+			}
+		}
+
+		// Render unique edges
 		renderedEdges := make(map[edge]bool)
 		for _, e := range callerEdges {
 			if !renderedEdges[e] {
 				renderedEdges[e] = true
-				dot.WriteString(fmt.Sprintf("    \"%s\" -> \"%s\";\n", e.From, e.To))
+				edgeColor := "#999999"
+				// Optionally color edge by thread
+				if tid, has := nodeThreadColor[e.From]; has {
+					edgeColor = threadBorders[tid]
+				}
+				dot.WriteString(fmt.Sprintf("    \"%s\" -> \"%s\" [color=\"%s\"];\n", e.From, e.To, edgeColor))
 			}
 		}
 		for _, e := range calleeEdges {
 			if !renderedEdges[e] {
 				renderedEdges[e] = true
-				dot.WriteString(fmt.Sprintf("    \"%s\" -> \"%s\";\n", e.From, e.To))
+				edgeColor := "#999999"
+				if tid, has := nodeThreadColor[e.From]; has {
+					edgeColor = threadBorders[tid]
+				}
+				dot.WriteString(fmt.Sprintf("    \"%s\" -> \"%s\" [color=\"%s\"];\n", e.From, e.To, edgeColor))
 			}
 		}
 
@@ -712,14 +781,78 @@ func generateFullProgramGraph(source *store.Source, outputDirs []string, jobs *[
 	dot.WriteString("    node [shape=box, style=\"filled,rounded\", color=\"#10B981\", fontname=\"Helvetica\", fillcolor=\"#ECFDF5\", fontcolor=\"#064E3B\", fontsize=10];\n")
 	dot.WriteString("    edge [color=\"#34D399\", fontname=\"Helvetica\", fontsize=10];\n")
 
-	// Highlight main node
-	dot.WriteString("    \"main\" [fillcolor=\"#10B981\", fontcolor=\"white\", style=\"filled,rounded,bold\"];\n")
+	// Extract all distinct nodes present in the full program graph
+	allNodes := make(map[string]bool)
+	for _, e := range programEdges {
+		allNodes[e.From] = true
+		allNodes[e.To] = true
+	}
+	allNodes["main"] = true
+
+	// Define thread coloring palette for global graph
+	threadPalette := []string{"#FEF2F2", "#FFFBEB", "#ECFDF5", "#EFF6FF", "#F5F3FF"}
+	threadBorders := []string{"#EF4444", "#F59E0B", "#10B981", "#3B82F6", "#8B5CF6"}
+	nodeThreadColor := make(map[string]int)
+
+	nextTid := 0
+	// 1. Seed initiators
+	for n := range allNodes {
+		if sym := source.FindSymbolByFullName(n); sym != nil && sym.SpawnsThread {
+			nodeThreadColor[n] = nextTid % len(threadPalette)
+			nextTid++
+		}
+	}
+
+	// 2. Iteratively propagate
+	dirty := true
+	for dirty {
+		dirty = false
+		for _, e := range programEdges {
+			if tid, ok := nodeThreadColor[e.From]; ok {
+				if _, ex := nodeThreadColor[e.To]; !ex {
+					nodeThreadColor[e.To] = tid
+					dirty = true
+				}
+			}
+		}
+	}
+
+	// 3. Render styled node declarations
+	for n := range allNodes {
+		nodeFill := "#ECFDF5"
+		nodeBorder := "#10B981"
+		nodePen := "1.0"
+		nodeStyle := "filled,rounded"
+		fontCol := "#064E3B"
+
+		if tid, has := nodeThreadColor[n]; has {
+			nodeFill = threadPalette[tid]
+			nodeBorder = threadBorders[tid]
+			fontCol = nodeBorder // Match font to border for thread clarity
+			nodePen = "1.2"
+			nodeStyle = "filled,rounded,dashed"
+			if sym := source.FindSymbolByFullName(n); sym != nil && sym.SpawnsThread {
+				nodeStyle = "filled,rounded,bold"
+				nodePen = "2.0"
+			}
+		}
+
+		if n == "main" {
+			dot.WriteString("    \"main\" [fillcolor=\"#10B981\", fontcolor=\"white\", style=\"filled,rounded,bold\", penwidth=2.0];\n")
+		} else {
+			dot.WriteString(fmt.Sprintf("    \"%s\" [fillcolor=\"%s\", color=\"%s\", fontcolor=\"%s\", style=\"%s\", penwidth=%s];\n", n, nodeFill, nodeBorder, fontCol, nodeStyle, nodePen))
+		}
+	}
 
 	renderedEdges := make(map[edge]bool)
 	for _, e := range programEdges {
 		if !renderedEdges[e] {
 			renderedEdges[e] = true
-			dot.WriteString(fmt.Sprintf("    \"%s\" -> \"%s\";\n", e.From, e.To))
+			edgeCol := "#34D399"
+			if tid, has := nodeThreadColor[e.From]; has {
+				edgeCol = threadBorders[tid]
+			}
+			dot.WriteString(fmt.Sprintf("    \"%s\" -> \"%s\" [color=\"%s\"];\n", e.From, e.To, edgeCol))
 		}
 	}
 
@@ -757,7 +890,7 @@ func generateFullProgramGraph(source *store.Source, outputDirs []string, jobs *[
 	})
 }
 
-// generateRelationsGraph compiles a visual type relationship diagram (implements, embeds, composition).
+// generateRelationsGraph partitions type relationships into disjoint sets and generates separate diagrams for each.
 func generateRelationsGraph(source *store.Source, outputDirs []string, jobs *[]DiagramJob) {
 	if len(outputDirs) == 0 {
 		return
@@ -765,192 +898,263 @@ func generateRelationsGraph(source *store.Source, outputDirs []string, jobs *[]D
 	imagesDir := filepath.Join(outputDirs[0], "images")
 	_ = os.MkdirAll(imagesDir, 0755)
 
-	pngPath := filepath.Join(imagesDir, "relations_graph.png")
-
-	var dot bytes.Buffer
-	dot.WriteString("digraph G {\n")
-	dot.WriteString("    rankdir=BT;\n")
-	dot.WriteString("    node [shape=box, style=\"filled,rounded\", color=\"#818CF8\", fontname=\"Helvetica\", fillcolor=\"#EEF2FF\", fontcolor=\"#312E81\", fontsize=10];\n")
-	dot.WriteString("    edge [fontname=\"Helvetica\", fontsize=9];\n")
-
-	var structs []store.Symbol
-	var interfaces []store.Symbol
+	// 1. Collect all Nodes
+	nodes := make(map[string]store.Symbol)
+	allNodeNames := []string{}
 	for _, sym := range source.Symbols {
-		if sym.Kind == store.SymStruct {
-			structs = append(structs, sym)
-		} else if sym.Kind == store.SymInterface {
-			interfaces = append(interfaces, sym)
+		if sym.Kind == store.SymStruct || sym.Kind == store.SymInterface {
+			nodes[sym.Name] = sym
+			allNodeNames = append(allNodeNames, sym.Name)
 		}
 	}
 
-	// Render Interfaces with distinct styling
-	for _, it := range interfaces {
-		dot.WriteString(fmt.Sprintf("    \"%s\" [fillcolor=\"#ECFDF5\", color=\"#10B981\", fontcolor=\"#064E3B\", style=\"filled,rounded,dashed\"];\n", it.Name))
+	if len(allNodeNames) == 0 {
+		return
 	}
 
-	renderedRelations := make(map[string]bool)
+	// Initialize Union-Find
+	dsuParent := make(map[string]string)
+	for _, name := range allNodeNames {
+		dsuParent[name] = name
+	}
 
-	for _, s := range structs {
+	var find func(string) string
+	find = func(i string) string {
+		if dsuParent[i] == "" {
+			// External node reference discovered! dynamically add it.
+			dsuParent[i] = i
+		}
+		p := dsuParent[i]
+		if p == i {
+			return i
+		}
+		dsuParent[i] = find(p) // path compression
+		return dsuParent[i]
+	}
+
+	union := func(i, j string) {
+		rootI := find(i)
+		rootJ := find(j)
+		if rootI != rootJ {
+			dsuParent[rootI] = rootJ
+		}
+	}
+
+	// Define internal Edge struct to collect all relationships first
+	type Edge struct {
+		From     string
+		To       string
+		Relation string // "implements", "extends", "embeds", "composed of"
+	}
+	var allEdges []Edge
+	renderedEdges := make(map[string]bool)
+	addEdge := func(from, to, rel string) {
+		k := from + "|" + to + "|" + rel
+		if renderedEdges[k] {
+			return
+		}
+		renderedEdges[k] = true
+		allEdges = append(allEdges, Edge{From: from, To: to, Relation: rel})
+		union(from, to) // Link them in DSU!
+	}
+
+	// 2. Collect all Edges & Build DSU Tree
+	for _, sName := range allNodeNames {
+		s := nodes[sName]
+		if s.Kind != store.SymStruct {
+			continue
+		}
+		
 		fields := source.GetStructFields(s.Name)
 		methods := source.GetStructMethods(s.Name)
 
-		// Implements Relationships
+		// Implements
 		for _, m := range methods {
 			if m.Name == "Parse" {
-				rel := fmt.Sprintf("    \"%s\" -> \"Parser\" [arrowhead=onormal, style=dashed, color=\"#10B981\", label=\"implements\"];\n", s.Name)
-				if !renderedRelations[rel] {
-					renderedRelations[rel] = true
-					dot.WriteString(rel)
-				}
+				addEdge(s.Name, "Parser", "implements")
 			}
 			if m.Name == "Generate" {
-				rel := fmt.Sprintf("    \"%s\" -> \"Generator\" [arrowhead=onormal, style=dashed, color=\"#10B981\", label=\"implements\"];\n", s.Name)
-				if !renderedRelations[rel] {
-					renderedRelations[rel] = true
-					dot.WriteString(rel)
-				}
+				addEdge(s.Name, "Generator", "implements")
 			}
 		}
 
-		// Inheritance / Explicit Relations
+		// Explicit Relations (Inheritance)
 		for _, relName := range s.Relations {
-			rel := fmt.Sprintf("    \"%s\" -> \"%s\" [arrowhead=onormal, style=solid, color=\"#6366F1\", label=\"extends\"];\n", s.Name, relName)
-			if !renderedRelations[rel] {
-				renderedRelations[rel] = true
-				dot.WriteString(rel)
-			}
+			addEdge(s.Name, relName, "extends")
 		}
 
-		// Embedding / Composition Relationships
+		// Composite / Embedding
 		for _, f := range fields {
 			cleanType := strings.Trim(f.Type, "*[]")
 			if idx := strings.LastIndex(cleanType, "."); idx != -1 {
 				cleanType = cleanType[idx+1:]
 			}
 
-			isStruct := false
-			for _, other := range structs {
-				if other.Name == cleanType {
-					isStruct = true
-					break
-				}
-			}
-
-			if isStruct {
+			// Only draw edge if destination is also inside our tracked structs
+			if _, exists := nodes[cleanType]; exists {
 				if f.Name == f.Type || strings.HasSuffix(f.Type, f.Name) {
-					// Embedding
-					rel := fmt.Sprintf("    \"%s\" -> \"%s\" [arrowhead=empty, style=solid, color=\"#818CF8\", label=\"embeds\"];\n", s.Name, cleanType)
-					if !renderedRelations[rel] {
-						renderedRelations[rel] = true
-						dot.WriteString(rel)
-					}
+					addEdge(s.Name, cleanType, "embeds")
 				} else {
-					// Field Composition
-					rel := fmt.Sprintf("    \"%s\" -> \"%s\" [arrowhead=diamond, style=solid, color=\"#F59E0B\", label=\"composed of\"];\n", s.Name, cleanType)
-					if !renderedRelations[rel] {
-						renderedRelations[rel] = true
-						dot.WriteString(rel)
+					addEdge(s.Name, cleanType, "composed of")
+				}
+			}
+		}
+	}
+
+	// 3. Group nodes into connected components
+	groups := make(map[string][]string)
+	for _, name := range allNodeNames {
+		root := find(name)
+		groups[root] = append(groups[root], name)
+	}
+
+	// Split into standalone vs multi-node clusters to reduce png spam
+	var multiGroups [][]string
+	var singletons []string
+
+	// Also need to account for external nodes created through edges (like "Parser")
+	// We iterate final DSU map to make sure everything is included
+	fullRoots := make(map[string][]string)
+	for key := range dsuParent {
+		root := find(key)
+		fullRoots[root] = append(fullRoots[root], key)
+	}
+
+	for _, members := range fullRoots {
+		if len(members) > 1 {
+			multiGroups = append(multiGroups, members)
+		} else {
+			singletons = append(singletons, members...)
+		}
+	}
+
+	// We define final collections of diagrams to create
+	type GroupTask struct {
+		Nodes []string
+		Name  string
+	}
+	var diagramTasks []GroupTask
+	for idx, members := range multiGroups {
+		diagramTasks = append(diagramTasks, GroupTask{
+			Nodes: members,
+			Name:  fmt.Sprintf("relations_set_%d", idx),
+		})
+	}
+	if len(singletons) > 0 {
+		diagramTasks = append(diagramTasks, GroupTask{
+			Nodes: singletons,
+			Name:  "relations_standalone",
+		})
+	}
+
+	// Immediately determine listing of all relative image links for HTML page creation
+	var imgRelPaths []string
+	for _, task := range diagramTasks {
+		imgRelPaths = append(imgRelPaths, fmt.Sprintf("../images/%s.png", task.Name))
+	}
+
+	// Write visual wrapper HTML housing all images immediately!
+	writeMultiGraphHTMLToAll("relations.html", "Partitioned Type Relationship Graphs", imgRelPaths, outputDirs)
+
+	// 4. Launch Diagram Creation Job for Each Group!
+	for _, task := range diagramTasks {
+		// Gather subset of edges belonging ONLY to nodes in this task group
+		taskNodeSet := make(map[string]bool)
+		for _, n := range task.Nodes {
+			taskNodeSet[n] = true
+		}
+
+		var taskEdges []Edge
+		for _, e := range allEdges {
+			if taskNodeSet[e.From] || taskNodeSet[e.To] {
+				taskEdges = append(taskEdges, e)
+			}
+		}
+
+		// --- GENERATE DOT ---
+		var dot bytes.Buffer
+		dot.WriteString("digraph G {\n")
+		dot.WriteString("    rankdir=BT;\n")
+		dot.WriteString("    node [shape=box, style=\"filled,rounded\", color=\"#818CF8\", fontname=\"Helvetica\", fillcolor=\"#EEF2FF\", fontcolor=\"#312E81\", fontsize=10];\n")
+		dot.WriteString("    edge [fontname=\"Helvetica\", fontsize=9];\n")
+
+		for _, nName := range task.Nodes {
+			sym, exists := nodes[nName]
+			if exists && sym.Kind == store.SymInterface {
+				dot.WriteString(fmt.Sprintf("    \"%s\" [fillcolor=\"#ECFDF5\", color=\"#10B981\", fontcolor=\"#064E3B\", style=\"filled,rounded,dashed\"];\n", nName))
+			} else {
+				// standard fallback if node was external or not a known interface
+				if !exists {
+					dot.WriteString(fmt.Sprintf("    \"%s\" [fillcolor=\"#FEE2E2\", color=\"#EF4444\", fontcolor=\"#7F1D1D\"];\n", nName))
+				}
+			}
+		}
+
+		for _, e := range taskEdges {
+			switch e.Relation {
+			case "implements":
+				dot.WriteString(fmt.Sprintf("    \"%s\" -> \"%s\" [arrowhead=onormal, style=dashed, color=\"#10B981\", label=\"implements\"];\n", e.From, e.To))
+			case "extends":
+				dot.WriteString(fmt.Sprintf("    \"%s\" -> \"%s\" [arrowhead=onormal, style=solid, color=\"#6366F1\", label=\"extends\"];\n", e.From, e.To))
+			case "embeds":
+				dot.WriteString(fmt.Sprintf("    \"%s\" -> \"%s\" [arrowhead=empty, style=solid, color=\"#818CF8\", label=\"embeds\"];\n", e.From, e.To))
+			case "composed of":
+				dot.WriteString(fmt.Sprintf("    \"%s\" -> \"%s\" [arrowhead=diamond, style=solid, color=\"#F59E0B\", label=\"composed of\"];\n", e.From, e.To))
+			}
+		}
+		dot.WriteString("}\n")
+
+		// --- GENERATE PUML ---
+		var puml bytes.Buffer
+		puml.WriteString("@startuml\n")
+		puml.WriteString("skinparam classAttributeIconSize 0\n")
+		
+		for _, nName := range task.Nodes {
+			sym, exists := nodes[nName]
+			if exists {
+				if sym.Kind == store.SymInterface {
+					puml.WriteString(fmt.Sprintf("interface %s {\n}\n", sym.Name))
+				} else if sym.Kind == store.SymStruct {
+					puml.WriteString(fmt.Sprintf("class %s {\n", sym.Name))
+					fields := source.GetStructFields(sym.Name)
+					for _, f := range fields {
+						cleanType := strings.ReplaceAll(f.Type, "{", "[")
+						cleanType = strings.ReplaceAll(cleanType, "}", "]")
+						puml.WriteString(fmt.Sprintf("    +%s : %s\n", f.Name, cleanType))
 					}
-				}
-			}
-		}
-	}
-
-	dot.WriteString("}\n")
-
-	// Native PlantUML Class Diagram
-	var puml bytes.Buffer
-	puml.WriteString("@startuml\n")
-	puml.WriteString("skinparam classAttributeIconSize 0\n")
-	for _, it := range interfaces {
-		puml.WriteString(fmt.Sprintf("interface %s {\n", it.Name))
-		puml.WriteString("}\n")
-	}
-	for _, s := range structs {
-		puml.WriteString(fmt.Sprintf("class %s {\n", s.Name))
-		fields := source.GetStructFields(s.Name)
-		for _, f := range fields {
-			cleanType := strings.ReplaceAll(f.Type, "{", "[")
-			cleanType = strings.ReplaceAll(cleanType, "}", "]")
-			puml.WriteString(fmt.Sprintf("    +%s : %s\n", f.Name, cleanType))
-		}
-		methods := source.GetStructMethods(s.Name)
-		for _, m := range methods {
-			puml.WriteString(fmt.Sprintf("    +%s()\n", m.Name))
-		}
-		puml.WriteString("}\n")
-	}
-
-	renderedPumlRelations := make(map[string]bool)
-	for _, s := range structs {
-		fields := source.GetStructFields(s.Name)
-		methods := source.GetStructMethods(s.Name)
-
-		for _, m := range methods {
-			if m.Name == "Parse" {
-				rel := fmt.Sprintf("%s ..|> Parser : implements\n", s.Name)
-				if !renderedPumlRelations[rel] {
-					renderedPumlRelations[rel] = true
-					puml.WriteString(rel)
-				}
-			}
-			if m.Name == "Generate" {
-				rel := fmt.Sprintf("%s ..|> Generator : implements\n", s.Name)
-				if !renderedPumlRelations[rel] {
-					renderedPumlRelations[rel] = true
-					puml.WriteString(rel)
-				}
-			}
-		}
-
-		for _, f := range fields {
-			cleanType := strings.Trim(f.Type, "*[]")
-			if idx := strings.LastIndex(cleanType, "."); idx != -1 {
-				cleanType = cleanType[idx+1:]
-			}
-			isStruct := false
-			for _, other := range structs {
-				if other.Name == cleanType {
-					isStruct = true
-					break
-				}
-			}
-			if isStruct {
-				if f.Name == f.Type || strings.HasSuffix(f.Type, f.Name) {
-					rel := fmt.Sprintf("%s *-- %s : embeds\n", s.Name, cleanType)
-					if !renderedPumlRelations[rel] {
-						renderedPumlRelations[rel] = true
-						puml.WriteString(rel)
+					methods := source.GetStructMethods(sym.Name)
+					for _, m := range methods {
+						puml.WriteString(fmt.Sprintf("    +%s()\n", m.Name))
 					}
-				} else {
-					rel := fmt.Sprintf("%s o-- %s : composed of\n", s.Name, cleanType)
-					if !renderedPumlRelations[rel] {
-						renderedPumlRelations[rel] = true
-						puml.WriteString(rel)
-					}
+					puml.WriteString("}\n")
 				}
+			} else {
+				// External entity
+				puml.WriteString(fmt.Sprintf("class %s <<External>>\n", nName))
 			}
 		}
 
-		// Inheritance / Explicit Relations
-		for _, relName := range s.Relations {
-			rel := fmt.Sprintf("%s --|> %s : extends\n", s.Name, relName)
-			if !renderedPumlRelations[rel] {
-				renderedPumlRelations[rel] = true
-				puml.WriteString(rel)
+		for _, e := range taskEdges {
+			switch e.Relation {
+			case "implements":
+				puml.WriteString(fmt.Sprintf("%s ..|> %s : implements\n", e.From, e.To))
+			case "extends":
+				puml.WriteString(fmt.Sprintf("%s --|> %s : extends\n", e.From, e.To))
+			case "embeds":
+				puml.WriteString(fmt.Sprintf("%s *-- %s : embeds\n", e.From, e.To))
+			case "composed of":
+				puml.WriteString(fmt.Sprintf("%s o-- %s : composed of\n", e.From, e.To))
 			}
 		}
+		puml.WriteString("@enduml\n")
+
+		*jobs = append(*jobs, DiagramJob{
+			DotContent:  dot.String(),
+			PumlContent: puml.String(),
+			PngPath:     filepath.Join(imagesDir, task.Name+".png"),
+			PostRun:     nil, // Hook not needed since main page was written beforehand!
+		})
 	}
-	puml.WriteString("@enduml\n")
-
-	*jobs = append(*jobs, DiagramJob{
-		DotContent:  dot.String(),
-		PumlContent: puml.String(),
-		PngPath:     pngPath,
-		PostRun: func() {
-			writeGraphHTMLToAll("relations.html", "Type Relationships Graph", "../images/relations_graph.png", outputDirs)
-		},
-	})
 }
 
 // generateSequenceDiagrams compiles a visual sequence diagram for each function showing its call interactions.
@@ -1207,6 +1411,123 @@ func writeGraphHTMLToAll(filename, title, imageRelPath string, outputDirs []stri
 		_ = os.MkdirAll(graphsDir, 0755)
 		_ = writeGraphHTML(filepath.Join(graphsDir, filename), title, imageRelPath)
 	}
+}
+
+func writeMultiGraphHTMLToAll(filename, title string, images []string, outputDirs []string) {
+	for _, outDir := range outputDirs {
+		graphsDir := filepath.Join(outDir, "graphs")
+		_ = os.MkdirAll(graphsDir, 0755)
+		_ = writeMultiGraphHTML(filepath.Join(graphsDir, filename), title, images)
+	}
+}
+
+func writeMultiGraphHTML(outputPath, title string, images []string) error {
+	_ = os.MkdirAll(filepath.Dir(outputPath), 0755)
+	
+	var imgs strings.Builder
+	for _, img := range images {
+		imgs.WriteString(fmt.Sprintf(`
+        <div class="graph-container" style="margin-bottom: 2rem;">
+            <img src="%s" alt="Graph Component">
+        </div>
+`, img))
+	}
+
+	html := fmt.Sprintf(`<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>%[1]s | Visual Graph Viewer</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-primary: #0F172A;
+            --bg-secondary: #1E293B;
+            --accent-primary: #6366F1;
+            --text-primary: #F8FAFC;
+            --text-secondary: #94A3B8;
+            --border-color: rgba(255, 255, 255, 0.08);
+        }
+        body {
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+            font-family: 'Outfit', sans-serif;
+            margin: 0;
+            padding: 2rem;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+            box-sizing: border-box;
+        }
+        header {
+            width: 100%%;
+            max-width: 1200px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 2rem;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 1rem;
+        }
+        h1 {
+            font-size: 1.8rem;
+            font-weight: 600;
+            margin: 0;
+            background: linear-gradient(135deg, #818CF8, #34D399);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .back-btn {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--border-color);
+            color: var(--text-secondary);
+            padding: 0.6rem 1.2rem;
+            border-radius: 8px;
+            text-decoration: none;
+            font-size: 0.9rem;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+        .back-btn:hover {
+            background: rgba(255, 255, 255, 0.1);
+            color: var(--text-primary);
+            border-color: var(--accent-primary);
+            transform: translateX(-4px);
+        }
+        .graph-container {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 2rem;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            width: 100%%;
+            max-width: 1200px;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.3);
+            overflow: auto;
+        }
+        img {
+            max-width: 100%%;
+            height: auto;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>%[1]s</h1>
+        <a href="../index.html" class="back-btn">← Back to Dashboard</a>
+    </header>
+    <p style="color: var(--text-secondary); margin-bottom: 1.5rem;">Displaying all distinct type subgraphs (disjoint sets) derived from codebase topology.</p>
+    %[2]s
+</body>
+</html>`, title, imgs.String())
+
+	return os.WriteFile(outputPath, []byte(html), 0644)
 }
 
 func writeGraphHTML(outputPath, title, imageRelPath string) error {

@@ -427,6 +427,7 @@ func (p *OdinParser) parseStruct(startLine int, name, doc string, isPrivate bool
 		Package: p.pkg,
 	})
 	structIdx := len(p.source.Symbols) - 1
+	totalSize := 0
 
 	depth := 0
 	consumed := 0
@@ -470,6 +471,7 @@ func (p *OdinParser) parseStruct(startLine int, name, doc string, isPrivate bool
 						Type:    fieldType,
 						Package: p.pkg,
 					})
+					totalSize += calculateOdinTypeSize(fieldType)
 				}
 
 				// Relationship extraction
@@ -493,6 +495,7 @@ func (p *OdinParser) parseStruct(startLine int, name, doc string, isPrivate bool
 			break
 		}
 	}
+	p.source.Symbols[structIdx].MemorySize = totalSize
 	return consumed
 }
 
@@ -774,18 +777,27 @@ func (p *OdinParser) parseProc(startLine int, doc string, isPrivate bool) int {
 		kind = store.SymMethod
 	}
 
+	spawnsThread := false
+	for _, bline := range bodyLines {
+		if strings.Contains(bline, "thread.create") || strings.Contains(bline, "thread.run") || strings.Contains(bline, "thread.start") {
+			spawnsThread = true
+			break
+		}
+	}
+
 	p.source.AddSymbol(store.Symbol{
-		Name:       name,
-		Kind:       kind,
-		File:       p.filePath,
-		Line:       startLine + 1,
-		Doc:        doc,
-		Parent:     parent, // Keep original struct parent for UI if any
-		Package:    p.pkg,
-		Params:     params,
-		Returns:    returns,
-		LineCount:  lineCount,
-		Complexity: complexity,
+		Name:         name,
+		Kind:         kind,
+		File:         p.filePath,
+		Line:         startLine + 1,
+		Doc:          doc,
+		Parent:       parent, // Keep original struct parent for UI if any
+		Package:      p.pkg,
+		Params:       params,
+		Returns:      returns,
+		LineCount:    lineCount,
+		Complexity:   complexity,
+		SpawnsThread: spawnsThread,
 	})
 	// Record the qualified name in a internal-ish way or just use Parent.
 	// Actually, if we want to be consistent with Go parser, we might want to NOT use package prefix for local calls.
@@ -1074,4 +1086,51 @@ func isKeyword(s string) bool {
 		return true
 	}
 	return false
+}
+
+// calculateOdinTypeSize estimates byte size of Odin types.
+func calculateOdinTypeSize(t string) int {
+	t = strings.TrimSpace(t)
+	if strings.HasPrefix(t, "^") || strings.HasPrefix(t, "[]") || strings.HasPrefix(t, "[dynamic]") || strings.HasPrefix(t, "map[") {
+		return 8
+	}
+
+	// Parse arrays [N]Type
+	if strings.HasPrefix(t, "[") {
+		closeIdx := strings.Index(t, "]")
+		if closeIdx > 1 {
+			numStr := t[1:closeIdx]
+			// Simple digit extract for [32]
+			numParsed := 0
+			for j := 0; j < len(numStr); j++ {
+				if numStr[j] >= '0' && numStr[j] <= '9' {
+					numParsed = numParsed*10 + int(numStr[j]-'0')
+				}
+			}
+			if numParsed > 0 {
+				rest := t[closeIdx+1:]
+				return numParsed * calculateOdinTypeSize(rest)
+			}
+			return 8 // fallback for unknown size or symbolic N
+		}
+	}
+
+	switch t {
+	case "i8", "u8", "byte", "bool", "b8":
+		return 1
+	case "i16", "u16", "b16":
+		return 2
+	case "i32", "u32", "f32", "rune", "b32":
+		return 4
+	case "i64", "u64", "f64", "int", "uint", "b64", "rawptr", "uintptr":
+		return 8
+	case "i128", "u128":
+		return 16
+	case "string":
+		return 16 // ptr + len
+	case "cstring":
+		return 8
+	}
+	// Guess fallback for user types or complicated types
+	return 8
 }

@@ -95,10 +95,13 @@ func (hg *HTMLGenerator) buildSidebar(source *store.Source, depth int) string {
 	sort.Strings(sortedPkgs)
 
 	for _, pkg := range sortedPkgs {
-		sb.WriteString(fmt.Sprintf(`<div class="nav-section" style="margin-top: 1rem;">
-            <div class="nav-section-title" style="font-size: 0.75rem; text-transform: uppercase; color: var(--text-secondary); margin-bottom: 0.5rem; font-weight:600;">📦 Package %s</div>`+"\n", pkg))
+		sb.WriteString(fmt.Sprintf(`<details class="nav-section" style="margin-top: 0.75rem; border-bottom: 1px solid rgba(255,255,255,0.03); padding-bottom: 0.5rem;">
+            <summary class="nav-section-title" style="font-size: 0.8rem; text-transform: uppercase; color: var(--accent-primary); margin-bottom: 0.5rem; font-weight:700; cursor: pointer; list-style: none; display: flex; align-items: center; gap: 0.5rem;">
+                <span style="transition: transform 0.2s ease;">▶</span> 📦 %s
+            </summary>
+            <div style="padding-left: 0.5rem; border-left: 1px solid var(--border-color); margin-left: 0.25rem; margin-top: 0.5rem;">`+"\n", pkg))
 		
-		sb.WriteString(fmt.Sprintf(`            <a href="%spkg_%s.html" class="nav-link" style="display: block; padding: 0.25rem 0.75rem; color: var(--text-secondary); text-decoration: none; font-size: 0.9rem; font-weight: 500;">📖 Overview</a>`+"\n", pagePrefix, pkg))
+		sb.WriteString(fmt.Sprintf(`            <a href="%spkg_%s.html" class="nav-link" style="display: block; padding: 0.25rem 0.75rem; color: var(--text-primary); text-decoration: none; font-size: 0.9rem; font-weight: 600;">📖 Package Overview</a>`+"\n", pagePrefix, pkg))
 
 		// Structs under this package
 		hasStructHeader := false
@@ -110,16 +113,16 @@ func (hg *HTMLGenerator) buildSidebar(source *store.Source, depth int) string {
 			if sPkg == pkg {
 				l := getLanguageFromPath(s.File)
 				if !hasStructHeader {
-					sb.WriteString(`<div style="font-size: 0.75rem; color: var(--text-secondary); padding: 0.25rem 0.75rem; font-weight: 600;">Structs</div>`+"\n")
+					sb.WriteString(`<div style="font-size: 0.75rem; color: var(--text-secondary); padding: 0.5rem 0.75rem 0.25rem; font-weight: 600; text-transform: uppercase;">Structs</div>`+"\n")
 					hasStructHeader = true
 				}
-				sb.WriteString(fmt.Sprintf(`            <a href="%spkg_%s.html#struct_%s" class="nav-link lang-item-%s" data-lang="%s" style="display: block; padding: 0.15rem 0.75rem 0.15rem 1.25rem; color: var(--text-secondary); text-decoration: none; font-size: 0.85rem; font-family: monospace;">🧱 %s</a>`+"\n", pagePrefix, pkg, s.Name, l, l, s.Name))
+				sb.WriteString(fmt.Sprintf(`            <a href="%spkg_%s.html#struct_%s" class="nav-link lang-item-%s" data-lang="%s" style="display: block; padding: 0.15rem 0.75rem 0.15rem 1rem; color: var(--text-secondary); text-decoration: none; font-size: 0.85rem; font-family: monospace;">🧱 %s</a>`+"\n", pagePrefix, pkg, s.Name, l, l, s.Name))
 				
 				// Nest receiver methods under this struct
 				methods := source.GetStructMethods(s.Name)
 				for _, m := range methods {
 					mLang := getLanguageFromPath(m.File)
-					sb.WriteString(fmt.Sprintf(`            <a href="%spkg_%s.html#func_%s_%s" class="nav-link lang-item-%s" data-lang="%s" style="display: block; padding: 0.1rem 0.75rem 0.1rem 2rem; color: rgba(255,255,255,0.4); text-decoration: none; font-size: 0.8rem; font-family: monospace;">↳ λ %s()</a>`+"\n", pagePrefix, pkg, s.Name, m.Name, mLang, mLang, m.Name))
+					sb.WriteString(fmt.Sprintf(`            <a href="%spkg_%s.html#func_%s_%s" class="nav-link lang-item-%s" data-lang="%s" style="display: block; padding: 0.1rem 0.75rem 0.1rem 1.75rem; color: rgba(255,255,255,0.4); text-decoration: none; font-size: 0.8rem; font-family: monospace;">↳ λ %s()</a>`+"\n", pagePrefix, pkg, s.Name, m.Name, mLang, mLang, m.Name))
 				}
 			}
 		}
@@ -134,10 +137,10 @@ func (hg *HTMLGenerator) buildSidebar(source *store.Source, depth int) string {
 			if iPkg == pkg {
 				iLang := getLanguageFromPath(i.File)
 				if !hasInterfaceHeader {
-					sb.WriteString(`<div style="font-size: 0.75rem; color: var(--text-secondary); padding: 0.25rem 0.75rem; font-weight: 600;">Interfaces</div>`+"\n")
+					sb.WriteString(`<div style="font-size: 0.75rem; color: var(--text-secondary); padding: 0.5rem 0.75rem 0.25rem; font-weight: 600; text-transform: uppercase;">Interfaces</div>`+"\n")
 					hasInterfaceHeader = true
 				}
-				sb.WriteString(fmt.Sprintf(`            <a href="%spkg_%s.html#interface_%s" class="nav-link lang-item-%s" data-lang="%s" style="display: block; padding: 0.15rem 0.75rem 0.15rem 1.25rem; color: var(--text-secondary); text-decoration: none; font-size: 0.85rem; font-family: monospace;">🔌 %s</a>`+"\n", pagePrefix, pkg, i.Name, iLang, iLang, i.Name))
+				sb.WriteString(fmt.Sprintf(`            <a href="%spkg_%s.html#interface_%s" class="nav-link lang-item-%s" data-lang="%s" style="display: block; padding: 0.15rem 0.75rem 0.15rem 1rem; color: var(--text-secondary); text-decoration: none; font-size: 0.85rem; font-family: monospace;">🔌 %s</a>`+"\n", pagePrefix, pkg, i.Name, iLang, iLang, i.Name))
 			}
 		}
 
@@ -151,14 +154,14 @@ func (hg *HTMLGenerator) buildSidebar(source *store.Source, depth int) string {
 			if fPkg == pkg {
 				fLang := getLanguageFromPath(f.File)
 				if !hasFuncHeader {
-					sb.WriteString(`<div style="font-size: 0.75rem; color: var(--text-secondary); padding: 0.25rem 0.75rem; font-weight: 600;">Functions</div>`+"\n")
+					sb.WriteString(`<div style="font-size: 0.75rem; color: var(--text-secondary); padding: 0.5rem 0.75rem 0.25rem; font-weight: 600; text-transform: uppercase;">Functions</div>`+"\n")
 					hasFuncHeader = true
 				}
-				sb.WriteString(fmt.Sprintf(`            <a href="%spkg_%s.html#func_%s" class="nav-link lang-item-%s" data-lang="%s" style="display: block; padding: 0.15rem 0.75rem 0.15rem 1.25rem; color: var(--text-secondary); text-decoration: none; font-size: 0.85rem; font-family: monospace;">λ %s()</a>`+"\n", pagePrefix, pkg, f.Name, fLang, fLang, f.Name))
+				sb.WriteString(fmt.Sprintf(`            <a href="%spkg_%s.html#func_%s" class="nav-link lang-item-%s" data-lang="%s" style="display: block; padding: 0.15rem 0.75rem 0.15rem 1rem; color: var(--text-secondary); text-decoration: none; font-size: 0.85rem; font-family: monospace;">λ %s()</a>`+"\n", pagePrefix, pkg, f.Name, fLang, fLang, f.Name))
 			}
 		}
 
-		sb.WriteString(`        </div>`+"\n")
+		sb.WriteString(`        </div></details>`+"\n")
 	}
 
 	return sb.String()
@@ -238,6 +241,15 @@ func (hg *HTMLGenerator) renderPage(outputDir, filename, title, sidebarHTML, bod
             display: flex;
             flex-direction: column;
             gap: 0.35rem;
+        }
+
+        summary::-webkit-details-marker,
+        summary::marker {
+            display: none;
+        }
+
+        details[open] summary span {
+            transform: rotate(90deg);
         }
 
         .nav-link {
@@ -1485,6 +1497,12 @@ func (hg *HTMLGenerator) Generate(source *store.Source, outputDir string) error 
 					pkgBody.WriteString(fmt.Sprintf(`<div style="margin-bottom: 1.2rem; display: flex; flex-wrap: wrap; gap: 0.4rem;">%s</div>`, strings.Join(matchedPatterns, "")))
 				}
 
+				if s.MemorySize > 0 {
+					pkgBody.WriteString(fmt.Sprintf(`<div style="margin-bottom: 1rem; display: flex; gap: 0.5rem; align-items: center;">
+						<span style="display: inline-flex; align-items: center; background: rgba(16, 185, 129, 0.1); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 4px; padding: 2px 8px; font-size: 0.8rem; font-weight: 600;">💾 Estimated Shallow Size: %d bytes</span>
+					</div>`, s.MemorySize))
+				}
+
 				if s.Doc != "" {
 					pkgBody.WriteString(fmt.Sprintf(`<div class="docblock" style="margin-bottom: 1.5rem; padding: 0.8rem 1rem; background: rgba(255,255,255,0.02); border-left: 3px solid var(--accent-color); border-radius: 0 4px 4px 0;">%s</div>`, renderMarkdownToHTML(s.Doc)))
 				}
@@ -1658,13 +1676,21 @@ func (hg *HTMLGenerator) Generate(source *store.Source, outputDir string) error 
 					sigName = fmt.Sprintf("(r *%s) %s", f.Parent, f.Name)
 				}
 
+				asyncBadge := ""
+				if f.IsAsync {
+					asyncBadge = ` <span style="background: linear-gradient(135deg, #6a11cb 0%, #2575fc 100%); color: white; font-size: 0.65rem; text-transform: uppercase; padding: 3px 8px; border-radius: 20px; margin-left: 8px; vertical-align: middle; font-weight: bold; letter-spacing: 0.5px; box-shadow: 0 2px 6px rgba(0,0,0,0.3);">Async</span>`
+				}
+				if f.SpawnsThread {
+					asyncBadge += ` <span style="background: linear-gradient(135deg, #ef4444 0%, #f59e0b 100%); color: white; font-size: 0.65rem; text-transform: uppercase; padding: 3px 8px; border-radius: 20px; margin-left: 8px; vertical-align: middle; font-weight: bold; letter-spacing: 0.5px; box-shadow: 0 2px 6px rgba(0,0,0,0.3);">🧵 Spawns Thread</span>`
+				}
+
 				fLang := getLanguageFromPath(f.File)
 				pkgBody.WriteString(fmt.Sprintf(`
 				<div class="card" id="%s" data-lang="%s" style="scroll-margin-top: 2rem; margin-bottom: 2rem;">
 					<div class="card-title" style="font-size: 1.3rem; border-bottom: 1px solid var(--border-color); padding-bottom: 0.5rem; margin-bottom: 1rem; color: var(--accent-color); display: flex; justify-content: space-between; align-items: center;">
-						<span style="font-family: monospace; font-weight: 600;">%s</span>
+						<span style="font-family: monospace; font-weight: 600; display: flex; align-items: center;">%s%s</span>
 						<span style="font-size: 0.85rem; color: var(--text-secondary); font-family: monospace; font-weight: normal;">%s:%d</span>
-					</div>`, cardID, fLang, displayName, f.File, f.Line))
+					</div>`, cardID, fLang, displayName, asyncBadge, f.File, f.Line))
 
 				if f.Doc != "" {
 					pkgBody.WriteString(fmt.Sprintf(`<div class="docblock" style="margin-bottom: 1.5rem; padding: 0.8rem 1rem; background: rgba(255,255,255,0.02); border-left: 3px solid var(--accent-color); border-radius: 0 4px 4px 0;">%s</div>`, renderMarkdownToHTML(f.Doc)))

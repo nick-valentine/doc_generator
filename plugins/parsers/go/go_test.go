@@ -114,13 +114,54 @@ func NewConfig() *AppConfig {
 	}
 
 	// 6. Verify Call Relations
-	startCallees := source.GetCallees("AppConfig.Start")
+	startCallees := source.GetCallees("config.AppConfig.Start")
 	if len(startCallees) != 1 || startCallees[0] != "c.Log" {
-		t.Errorf("expected AppConfig.Start callees to be [c.Log], got %v", startCallees)
+		t.Errorf("expected config.AppConfig.Start callees to be [c.Log], got %v", startCallees)
 	}
 
-	newConfigCallees := source.GetCallees("NewConfig")
+	newConfigCallees := source.GetCallees("config.NewConfig")
 	if len(newConfigCallees) != 1 || newConfigCallees[0] != "config.Start" {
-		t.Errorf("expected NewConfig callees to be [config.Start], got %v", newConfigCallees)
+		t.Errorf("expected config.NewConfig callees to be [config.Start], got %v", newConfigCallees)
+	}
+}
+
+func TestGoParser_Async(t *testing.T) {
+	srcCode := []byte(`
+package async
+func RunTask() {
+	go func() {
+		println("doing background task")
+	}()
+}
+
+func ProcessStream(ch chan int) {
+	select {
+	case <-ch:
+		return
+	}
+}
+`)
+
+	gp := &GoParser{}
+	source := &store.Source{}
+	err := gp.Parse("async.go", srcCode, source)
+	if err != nil {
+		t.Fatalf("parsing error: %v", err)
+	}
+
+	// Check RunTask (uses 'go' statement)
+	taskSyms := source.SearchSymbols("RunTask")
+	if len(taskSyms) == 0 {
+		t.Errorf("RunTask not found")
+	} else if !taskSyms[0].IsAsync {
+		t.Errorf("RunTask should be detected as Async due to 'go' statement")
+	}
+
+	// Check ProcessStream (uses channel logic or select)
+	streamSyms := source.SearchSymbols("ProcessStream")
+	if len(streamSyms) == 0 {
+		t.Errorf("ProcessStream not found")
+	} else if !streamSyms[0].IsAsync {
+		t.Errorf("ProcessStream should be detected as Async due to select/channels")
 	}
 }

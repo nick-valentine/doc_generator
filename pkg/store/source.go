@@ -76,6 +76,12 @@ type Symbol struct {
 	Relations     []string
 	// Coverage holds the statement coverage percentage if a coverage report is present.
 	Coverage      *float64
+	// IsAsync indicates if the function or method is an async/coroutine/suspend routine.
+	IsAsync       bool
+	// SpawnsThread indicates if the function or method invokes a threading/goroutine primitive.
+	SpawnsThread  bool
+	// MemorySize contains the estimated shallow memory size of the struct in bytes.
+	MemorySize    int
 }
 
 // File represents a registered source file inside our parsed database.
@@ -350,6 +356,42 @@ func (s *Source) SearchSymbols(query string) []Symbol {
 		}
 	}
 	return result
+}
+
+// FindSymbolByFullName attempts to match a fully-qualified identifier back to its symbol definition.
+func (s *Source) FindSymbolByFullName(fullName string) *Symbol {
+	target := strings.ToLower(fullName)
+	for i := range s.Symbols {
+		sym := &s.Symbols[i]
+		
+		// Try building full name
+		ident := sym.Name
+		if sym.Parent != "" {
+			ident = sym.Parent + "." + ident
+		}
+		if sym.Package != "" && sym.Package != "main" {
+			ident = sym.Package + "." + ident
+		}
+		
+		if strings.ToLower(ident) == target {
+			return sym
+		}
+		
+		// Try direct package.name fallback
+		alt := sym.Name
+		if sym.Package != "" && sym.Package != "main" {
+			alt = sym.Package + "." + alt
+		}
+		if strings.ToLower(alt) == target {
+			return sym
+		}
+
+		// Direct match fallback
+		if strings.ToLower(sym.Name) == target {
+			return sym
+		}
+	}
+	return nil
 }
 
 // FilterByAudience returns symbols that have the specified audience tag.
