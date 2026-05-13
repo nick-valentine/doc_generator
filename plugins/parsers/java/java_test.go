@@ -37,6 +37,15 @@ public class AppConfig {
 	 * NewConfig creates standard config.
 	 * @audience DEVELOPER
 	 */
+	public AppConfig(int x) {
+		super();
+		this.enabled = true;
+	}
+
+	public void runRef() {
+		java.util.function.Consumer<String> c = System.out::println;
+	}
+
 	public static AppConfig newConfig() {
 		AppConfig config = new AppConfig();
 		config.start();
@@ -80,13 +89,32 @@ public class AppConfig {
 
 	// 4. Verify methods
 	methods := source.GetStructMethods("AppConfig")
-	if len(methods) != 3 {
-		t.Errorf("expected 3 methods, got %d", len(methods))
+	if len(methods) != 5 {
+		t.Errorf("expected 5 methods, got %d", len(methods))
 	}
 
 	// 5. Verify Call Relations
 	startCallees := source.GetCallees("com.example.AppConfig.start")
 	if len(startCallees) != 1 || startCallees[0] != "log" {
 		t.Errorf("expected com.example.AppConfig.start callees to be [log], got %v", startCallees)
+	}
+
+	// Extra Verification for constructors/references
+	superCallees := source.GetCallees("com.example.AppConfig.AppConfig")
+	foundSuper := false
+	for _, c := range superCallees {
+		if c == "super" { foundSuper = true; break }
+	}
+	if !foundSuper {
+		t.Errorf("expected to find call to 'super' in AppConfig(int x), got %v", superCallees)
+	}
+
+	refCallees := source.GetCallees("com.example.AppConfig.runRef")
+	foundRef := false
+	for _, c := range refCallees {
+		if c == "System.out.println" { foundRef = true; break }
+	}
+	if !foundRef {
+		t.Errorf("expected to find call to 'System.out.println' in runRef, got %v", refCallees)
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 	"doc_generator/pkg/store"
+	anafrontend "doc_generator/pkg/analysis/frontend"
 )
 
 func TestPreprocess(t *testing.T) {
@@ -81,7 +82,7 @@ func TestJSXExtraction(t *testing.T) {
 	}
 	`
 	syms := &store.Source{}
-	ExtractJSXCalls("MyDashboard", src, syms)
+	anafrontend.ExtractJSXCalls("MyDashboard", src, syms)
 
 	if len(syms.Calls) != 4 {
 		t.Errorf("Expected 4 component calls, got %d", len(syms.Calls))

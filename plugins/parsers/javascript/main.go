@@ -2,6 +2,7 @@ package main
 
 import (
 	"doc_generator/pkg/parsers/frontend"
+	anafrontend "doc_generator/pkg/analysis/frontend"
 	"doc_generator/pkg/store"
 	"path/filepath"
 	"strings"
@@ -205,7 +206,7 @@ func (jp *JavascriptParser) handleClass(node *tree_sitter.Node, source *store.So
 
 					// Scan method body for nested components
 					methText := NodeSource(jp.CleanSource, meth)
-					frontend.ExtractJSXCalls(caller, methText, source)
+					anafrontend.ExtractJSXCalls(caller, methText, source)
 				}
 			}
 		}
@@ -231,9 +232,9 @@ func (jp *JavascriptParser) handleFunction(node *tree_sitter.Node, source *store
 		params = NodeSource(jp.CleanSource, paramsNode)
 	}
 
-	if frontend.IsReactComponent(name, fullText) {
+	if anafrontend.IsReactComponent(name, fullText) {
 		// Elevate functional component to a high-level struct/class representation
-		frontend.RegisterComponent(name, jp.FileName, lineNum, source)
+		anafrontend.RegisterComponent(name, jp.FileName, lineNum, source)
 		// Update with complexity data directly
 		for i := range source.Symbols {
 			if source.Symbols[i].Name == name && source.Symbols[i].File == jp.FileName {
@@ -247,7 +248,7 @@ func (jp *JavascriptParser) handleFunction(node *tree_sitter.Node, source *store
 			}
 		}
 		jp.findCalls(node, name, source)
-		frontend.ExtractJSXCalls(name, fullText, source)
+		anafrontend.ExtractJSXCalls(name, fullText, source)
 	} else {
 		spawnsThread := false
 		bodyNode := node.ChildByFieldName("body")
@@ -272,7 +273,7 @@ func (jp *JavascriptParser) handleFunction(node *tree_sitter.Node, source *store
 		})
 		jp.findCalls(node, name, source)
 		// Still scan for possible JSX rendered from normal function helper
-		frontend.ExtractJSXCalls(name, fullText, source)
+		anafrontend.ExtractJSXCalls(name, fullText, source)
 	}
 }
 
@@ -312,7 +313,7 @@ func (jp *JavascriptParser) handleLexicalDeclaration(node *tree_sitter.Node, sou
 
 		// If value is a function definition and passes component heuristic
 		if (valueNode.Kind() == "arrow_function" || valueNode.Kind() == "function_expression") && 
-		   frontend.IsReactComponent(name, fullValue) {
+		   anafrontend.IsReactComponent(name, fullValue) {
 			
 			source.AddSymbol(store.Symbol{
 				Name:          name,
@@ -330,7 +331,7 @@ func (jp *JavascriptParser) handleLexicalDeclaration(node *tree_sitter.Node, sou
 				SpawnsThread:  spawnsThread,
 			})
 			jp.findCalls(valueNode, name, source)
-			frontend.ExtractJSXCalls(name, fullValue, source)
+			anafrontend.ExtractJSXCalls(name, fullValue, source)
 		} else if valueNode.Kind() == "arrow_function" || valueNode.Kind() == "function_expression" {
 			// Normal top-level function export
 			source.AddSymbol(store.Symbol{
@@ -350,7 +351,7 @@ func (jp *JavascriptParser) handleLexicalDeclaration(node *tree_sitter.Node, sou
 			})
 			jp.findCalls(valueNode, name, source)
 			// Scan for component references inside normal exported arrows
-			frontend.ExtractJSXCalls(name, fullValue, source)
+			anafrontend.ExtractJSXCalls(name, fullValue, source)
 		}
 	}
 }

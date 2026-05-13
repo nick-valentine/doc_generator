@@ -163,23 +163,63 @@ func parseAndCleanTags(doc string) (cleanedDoc string, audience []string, compat
 	return cleanedDoc, audience, compatibility
 }
 
-// findCalls recursively walks the children of a node to extract all method_invocation targets.
+// findCalls recursively walks the children of a node to extract method calls, constructor invocations, and references.
 func (jp *JavaParser) findCalls(node *tree_sitter.Node, callerName string, source *store.Source) {
 	if node == nil {
 		return
 	}
 
-	if node.Kind() == "method_invocation" {
+	kind := node.Kind()
+
+	switch kind {
+	case "method_invocation":
 		nameNode := node.ChildByFieldName("name")
 		if nameNode != nil {
 			methodName := NodeSource(jp.File, nameNode)
-			// Check if there is an object calling it
 			objectNode := node.ChildByFieldName("object")
 			if objectNode != nil {
 				objectName := NodeSource(jp.File, objectNode)
 				source.AddCall(callerName, objectName+"."+methodName)
 			} else {
 				source.AddCall(callerName, methodName)
+			}
+		}
+	case "object_creation_expression":
+		// E.g., new MyObject(...)
+		typeNode := node.ChildByFieldName("type")
+		if typeNode != nil {
+			typeName := NodeSource(jp.File, typeNode)
+			// Record the call to the Type's constructor
+			source.AddCall(callerName, typeName)
+		}
+	case "explicit_constructor_invocation":
+		// E.g., super(...) or this(...)
+		consNode := node.ChildByFieldName("constructor")
+		if consNode != nil {
+			consName := NodeSource(jp.File, consNode)
+			source.AddCall(callerName, consName)
+		}
+	case "method_reference":
+		// E.g., System.out::println or MyClass::staticMethod
+		// Usually 3 children: LHS, '::', and the identifier RHS.
+		// We look for an identifier child node that isn't the first child if we want reliable parsing,
+		// or just iterate looking for specific elements.
+		var targetMethod string
+		cCount := int(node.ChildCount())
+		for i := 0; i < cCount; i++ {
+			child := node.Child(uint(i))
+			if child != nil && child.Kind() == "identifier" {
+				targetMethod = NodeSource(jp.File, child)
+			}
+		}
+		// First child provides context
+		if targetMethod != "" && cCount > 0 {
+			contextNode := node.Child(0)
+			if contextNode != nil {
+				contextName := NodeSource(jp.File, contextNode)
+				source.AddCall(callerName, contextName+"."+targetMethod)
+			} else {
+				source.AddCall(callerName, targetMethod)
 			}
 		}
 	}

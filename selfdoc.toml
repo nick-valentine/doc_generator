@@ -5,7 +5,19 @@ ignore = ["vendor", ".git", ".gopath", "docs", "plugins"]
 [[output]]
 format = "html"
 directory = "docs/html"
+language = "en"
 
 [[output]]
 format = "markdown"
 directory = "docs/markdown"
+language = "en"
+
+[[output]]
+format = "html"
+directory = "docs/html_ja"
+language = "ja"
+
+[[output]]
+format = "markdown"
+directory = "docs/markdown_ja"
+language = "ja"

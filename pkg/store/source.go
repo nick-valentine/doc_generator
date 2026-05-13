@@ -115,6 +115,26 @@ type NetworkComponent struct {
 	Details     map[string]string // Additional parsed details (Ports, mitigation type, deterministic flags)
 }
 
+// SecurityFinding stores a detected potential security hotspot or vulnerable API use.
+type SecurityFinding struct {
+	SymbolName  string
+	File        string
+	Line        int
+	Severity    string // "Critical", "High", "Medium", "Low"
+	Category    string // "Injection", "Hardcoded Secret", "System Call", "Network Access", "Weak Cryptography"
+	Description string
+	CodeSnippet string
+}
+
+// TranslationRecord stores a single parsed translation key-value entry.
+type TranslationRecord struct {
+	Key    string // Dot-separated nested key or unique string identifier
+	Locale string // e.g. "en", "fr", "pt-BR"
+	Value  string // The translated content text
+	File   string // File path where the translation was parsed from
+	Format string // "json", "properties", "po"
+}
+
 // Source serves as an in-memory normalized database of all parsed files and symbols.
 type Source struct {
 	// Files is the list of all registered source files.
@@ -127,16 +147,52 @@ type Source struct {
 	Patterns []Pattern
 	// NetworkAnalysis holds detailed findings of codebase networking topology.
 	NetworkAnalysis []NetworkComponent
+	// SecurityFindings lists potential hotspots, OS invocations, and risky APIs.
+	SecurityFindings []SecurityFinding
+	// Translations contains all detected and parsed localization string records.
+	Translations []TranslationRecord
 
 	indexesBuilt bool
 	callersIndex map[string][]string
 	calleesIndex map[string][]string
+	symbolMap    map[string]int
 	callsSet     map[CallRelation]bool
 }
 
 func (s *Source) buildIndexes() {
 	s.callersIndex = make(map[string][]string)
 	s.calleesIndex = make(map[string][]string)
+	s.symbolMap = make(map[string]int)
+
+	// 0. Populate the symbol name map for O(1) symbol extraction
+	for i := range s.Symbols {
+		sym := &s.Symbols[i]
+		lowName := strings.ToLower(sym.Name)
+		
+		// 1. Build canonical full name target
+		ident := lowName
+		if sym.Parent != "" {
+			ident = strings.ToLower(sym.Parent) + "." + ident
+		}
+		if sym.Package != "" && sym.Package != "main" {
+			ident = strings.ToLower(sym.Package) + "." + ident
+		}
+		s.symbolMap[ident] = i
+
+		// 2. Build package.name fallback target
+		pkgFallback := lowName
+		if sym.Package != "" && sym.Package != "main" {
+			pkgFallback = strings.ToLower(sym.Package) + "." + pkgFallback
+		}
+		if _, exists := s.symbolMap[pkgFallback]; !exists {
+			s.symbolMap[pkgFallback] = i
+		}
+
+		// 3. Raw name fallback
+		if _, exists := s.symbolMap[lowName]; !exists {
+			s.symbolMap[lowName] = i
+		}
+	}
 
 	// 1. Pre-cache symbol language mapping for O(1) lookup instead of full scans
 	symLangMap := make(map[string]string)
@@ -261,6 +317,7 @@ func (s *Source) AddFile(name string) {
 // AddSymbol registers a newly parsed symbol into the source database.
 func (s *Source) AddSymbol(sym Symbol) {
 	s.Symbols = append(s.Symbols, sym)
+	s.indexesBuilt = false
 }
 
 func sanitizeIdentifier(s string) string {
@@ -360,36 +417,13 @@ func (s *Source) SearchSymbols(query string) []Symbol {
 
 // FindSymbolByFullName attempts to match a fully-qualified identifier back to its symbol definition.
 func (s *Source) FindSymbolByFullName(fullName string) *Symbol {
+	if !s.indexesBuilt {
+		s.buildIndexes()
+	}
+	
 	target := strings.ToLower(fullName)
-	for i := range s.Symbols {
-		sym := &s.Symbols[i]
-		
-		// Try building full name
-		ident := sym.Name
-		if sym.Parent != "" {
-			ident = sym.Parent + "." + ident
-		}
-		if sym.Package != "" && sym.Package != "main" {
-			ident = sym.Package + "." + ident
-		}
-		
-		if strings.ToLower(ident) == target {
-			return sym
-		}
-		
-		// Try direct package.name fallback
-		alt := sym.Name
-		if sym.Package != "" && sym.Package != "main" {
-			alt = sym.Package + "." + alt
-		}
-		if strings.ToLower(alt) == target {
-			return sym
-		}
-
-		// Direct match fallback
-		if strings.ToLower(sym.Name) == target {
-			return sym
-		}
+	if idx, found := s.symbolMap[target]; found {
+		return &s.Symbols[idx]
 	}
 	return nil
 }

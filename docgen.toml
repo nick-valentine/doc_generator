@@ -1,9 +1,10 @@
 concurrency = 12
 max_diagram_symbols = 65535
+diagram_recursion_depth = 2
 
 [input]
 directory = "../beholderFPS"
-ignore = ["vendor", ".git", ".gopath", "cicd"]
+ignore = ["vendor", ".git", ".gopath", "cicd", "docs"]
 
 [[output]]
 format = "html"

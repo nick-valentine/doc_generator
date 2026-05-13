@@ -16,7 +16,7 @@ func (p *GoGraphvizDiagramProvider) Name() string { return "Go-Graphviz (Native)
 
 func (p *GoGraphvizDiagramProvider) IsAvailable() bool { return true }
 
-func (p *GoGraphvizDiagramProvider) Generate(content string, pngPath string) error {
+func (p *GoGraphvizDiagramProvider) Generate(content string, outputPath string) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
@@ -42,7 +42,7 @@ func (p *GoGraphvizDiagramProvider) Generate(content string, pngPath string) err
 	}
 	defer graph.Close()
 
-	if err := g.RenderFilename(graph, graphviz.PNG, pngPath); err != nil {
+	if err := g.RenderFilename(graph, graphviz.SVG, outputPath); err != nil {
 		return fmt.Errorf("go-graphviz render failed: %w", err)
 	}
 	return nil

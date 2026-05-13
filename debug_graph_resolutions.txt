@@ -1,0 +1,1025 @@
+Node Resolution Dump:
+Node: resource_pack_read                       Result: FOUND (Pkg: engine, Kind: method)
+Node: bsp_classify_aabb                        Result: FOUND (Pkg: map_compiler, Kind: function)
+Node: back.tracking_allocator_destroy          Result: FOUND (Pkg: back, Kind: method)
+Node: read_header_from_stream                  Result: FOUND (Pkg: archive, Kind: method)
+Node: DrawLine                                 Result: NOT FOUND
+Node: CloseAudioDevice                         Result: NOT FOUND
+Node: to_stream                                Result: NOT FOUND
+Node: free                                     Result: NOT FOUND
+Node: strings.fields                           Result: NOT FOUND
+Node: ring_push                                Result: FOUND (Pkg: containers, Kind: method)
+Node: math.clamp                               Result: NOT FOUND
+Node: table_write_to_stream                    Result: FOUND (Pkg: containers, Kind: function)
+Node: strconv.parse_uint                       Result: NOT FOUND
+Node: GetMonitorHeight                         Result: NOT FOUND
+Node: GetMeshBoundingBox                       Result: NOT FOUND
+Node: archive.release_cached_file              Result: FOUND (Pkg: archive, Kind: method)
+Node: split_lines                              Result: NOT FOUND
+Node: strings.contains                         Result: NOT FOUND
+Node: connecting                               Result: NOT FOUND
+Node: atomic_load                              Result: NOT FOUND
+Node: map_parser_read_entity                   Result: FOUND (Pkg: quake, Kind: method)
+Node: map_destroy                              Result: FOUND (Pkg: quake, Kind: method)
+Node: spall.context_create                     Result: NOT FOUND
+Node: packet_destroy                           Result: NOT FOUND
+Node: fmt.println                              Result: NOT FOUND
+Node: compressBound                            Result: NOT FOUND
+Node: read_float                               Result: FOUND (Pkg: parse, Kind: function)
+Node: destroy_def                              Result: FOUND (Pkg: engine, Kind: field)
+Node: strings.concatenate                      Result: NOT FOUND
+Node: resource_pack_release_file               Result: FOUND (Pkg: engine, Kind: method)
+Node: tracking_allocator                       Result: FOUND (Pkg: back, Kind: struct)
+Node: GamepadButton                            Result: FOUND (Pkg: engine, Kind: field)
+Node: SetTraceLogLevel                         Result: NOT FOUND
+Node: input_map_default                        Result: FOUND (Pkg: engine, Kind: function)
+Node: state_stack_push                         Result: FOUND (Pkg: engine, Kind: method)
+Node: DrawCircleV                              Result: NOT FOUND
+Node: histogram_set_add_pie                    Result: FOUND (Pkg: engine, Kind: method)
+Node: create_console_logger                    Result: NOT FOUND
+Node: material_map_init                        Result: FOUND (Pkg: engine, Kind: function)
+Node: spec.destroy_def                         Result: NOT FOUND
+Node: table_append                             Result: FOUND (Pkg: containers, Kind: function)
+Node: read_string_balanced_parentheses         Result: FOUND (Pkg: shader, Kind: function)
+Node: converted_brush_destroy                  Result: FOUND (Pkg: quake, Kind: method)
+Node: state_stack_render                       Result: FOUND (Pkg: engine, Kind: method)
+Node: filepath.join                            Result: NOT FOUND
+Node: particle_system_load_data                Result: FOUND (Pkg: engine, Kind: method)
+Node: LoadShaderFromMemory                     Result: NOT FOUND
+Node: sin                                      Result: NOT FOUND
+Node: reflect                                  Result: NOT FOUND
+Node: warnf                                    Result: NOT FOUND
+Node: math.cos                                 Result: NOT FOUND
+Node: split_n                                  Result: NOT FOUND
+Node: buffer_init_allocator                    Result: NOT FOUND
+Node: resource_map_contains                    Result: FOUND (Pkg: containers, Kind: method)
+Node: fields                                   Result: NOT FOUND
+Node: ctprintf                                 Result: NOT FOUND
+Node: rl.DrawRectangleLinesEx                  Result: NOT FOUND
+Node: has_target_feature                       Result: NOT FOUND
+Node: peek_rune                                Result: FOUND (Pkg: parse, Kind: function)
+Node: new_gamemode_lobby                       Result: FOUND (Pkg: engine, Kind: function)
+Node: state_stack_is_empty                     Result: FOUND (Pkg: engine, Kind: method)
+Node: mem.copy                                 Result: NOT FOUND
+Node: parse_f32                                Result: NOT FOUND
+Node: rl.GetMonitorHeight                      Result: NOT FOUND
+Node: rl.InitAudioDevice                       Result: NOT FOUND
+Node: dev_console_init                         Result: FOUND (Pkg: engine, Kind: method)
+Node: rl.LoadShaderFromMemory                  Result: NOT FOUND
+Node: plane_to_mesh                            Result: FOUND (Pkg: quake, Kind: function)
+Node: log.info                                 Result: NOT FOUND
+Node: bytes.buffer_write_rune                  Result: NOT FOUND
+Node: containers.bloom_filter_add              Result: FOUND (Pkg: containers, Kind: method)
+Node: error                                    Result: FOUND (Pkg: engine, Kind: field)
+Node: preprocess_shader_parse_const            Result: FOUND (Pkg: shader, Kind: method)
+Node: peer_send                                Result: NOT FOUND
+Node: state_cast_safe                          Result: FOUND (Pkg: engine, Kind: method)
+Node: rl.UnloadRenderTexture                   Result: NOT FOUND
+Node: reading                                  Result: NOT FOUND
+Node: resource_map_release                     Result: FOUND (Pkg: containers, Kind: method)
+Node: rl.UnloadTexture                         Result: NOT FOUND
+Node: now                                      Result: NOT FOUND
+Node: resource_map_get                         Result: FOUND (Pkg: containers, Kind: method)
+Node: strings.to_string                        Result: NOT FOUND
+Node: en.host_connect                          Result: NOT FOUND
+Node: compile_from_file                        Result: FOUND (Pkg: map_compiler, Kind: function)
+Node: quake_plane_to_mesh                      Result: FOUND (Pkg: map_compiler, Kind: function)
+Node: get_lights                               Result: FOUND (Pkg: quake, Kind: function)
+Node: eprintf                                  Result: NOT FOUND
+Node: register_segfault_handler                Result: FOUND (Pkg: back, Kind: function)
+Node: resource_pack_for_each                   Result: FOUND (Pkg: engine, Kind: method)
+Node: strings.intern_get                       Result: NOT FOUND
+Node: game_destroy                             Result: FOUND (Pkg: engine, Kind: method)
+Node: filepath.glob                            Result: NOT FOUND
+Node: encode_header_to_writer                  Result: FOUND (Pkg: archive, Kind: method)
+Node: trace_fill                               Result: FOUND (Pkg: back, Kind: function)
+Node: canonicalize_name                        Result: FOUND (Pkg: engine, Kind: function)
+Node: GetScreenWidth                           Result: NOT FOUND
+Node: animation_load_for_entity                Result: FOUND (Pkg: engine, Kind: method)
+Node: strings.write_rune                       Result: NOT FOUND
+Node: recv                                     Result: NOT FOUND
+Node: host_flush                               Result: NOT FOUND
+Node: texture_map_destroy                      Result: FOUND (Pkg: engine, Kind: function)
+Node: map_table_destroy                        Result: FOUND (Pkg: engine, Kind: method)
+Node: is_garbage_desc                          Result: FOUND (Pkg: main, Kind: function)
+Node: resource_set_load_all_packs_in_dir       Result: FOUND (Pkg: engine, Kind: method)
+Node: read_dir                                 Result: NOT FOUND
+Node: s                                        Result: FOUND (Pkg: engine, Kind: field)
+Node: to_lower                                 Result: NOT FOUND
+Node: parse.consume_token                      Result: FOUND (Pkg: parse, Kind: function)
+Node: en.host_destroy                          Result: NOT FOUND
+Node: ui_container_elem_i_pos                  Result: FOUND (Pkg: engine, Kind: method)
+Node: write_vec3                               Result: NOT FOUND
+Node: histogram_pie_render                     Result: FOUND (Pkg: engine, Kind: method)
+Node: en.host_flush                            Result: NOT FOUND
+Node: json.unmarshal                           Result: NOT FOUND
+Node: point_light_table_init                   Result: FOUND (Pkg: engine, Kind: method)
+Node: color_table_add                          Result: FOUND (Pkg: map_compiler, Kind: function)
+Node: mem.query_features                       Result: NOT FOUND
+Node: rl.SetSoundPan                           Result: NOT FOUND
+Node: load_shader_and_preprocess               Result: FOUND (Pkg: shader, Kind: function)
+Node: write                                    Result: NOT FOUND
+Node: os.to_writer                             Result: NOT FOUND
+Node: lock                                     Result: NOT FOUND
+Node: gamemode.render                          Result: NOT FOUND
+Node: rl.GetCurrentMonitor                     Result: NOT FOUND
+Node: min                                      Result: NOT FOUND
+Node: list.iterator_head                       Result: NOT FOUND
+Node: marshal_to_writer                        Result: NOT FOUND
+Node: fmt.eprintfln                            Result: NOT FOUND
+Node: strings.reader_read_rune                 Result: NOT FOUND
+Node: parse.read_quoted_string                 Result: FOUND (Pkg: parse, Kind: function)
+Node: rl.LoadRenderTexture                     Result: NOT FOUND
+Node: bloom_filter_contains                    Result: FOUND (Pkg: containers, Kind: method)
+Node: net_client_clear_state                   Result: FOUND (Pkg: engine, Kind: method)
+Node: table_destroy                            Result: FOUND (Pkg: containers, Kind: function)
+Node: resource_map_acquire                     Result: FOUND (Pkg: containers, Kind: method)
+Node: rl.UnloadImage                           Result: NOT FOUND
+Node: DisableBackfaceCulling                   Result: NOT FOUND
+Node: tprintf                                  Result: NOT FOUND
+Node: initialize                               Result: NOT FOUND
+Node: en.host_broadcast                        Result: NOT FOUND
+Node: locale_load                              Result: FOUND (Pkg: engine, Kind: function)
+Node: read_entire_file                         Result: NOT FOUND
+Node: command_compile_map                      Result: FOUND (Pkg: main, Kind: function)
+Node: GetRayCollisionMesh                      Result: NOT FOUND
+Node: write_quoted_string                      Result: NOT FOUND
+Node: init                                     Result: FOUND (Pkg: archive, Kind: method)
+Node: trace                                    Result: FOUND (Pkg: back, Kind: field)
+Node: game_load_resources                      Result: FOUND (Pkg: engine, Kind: function)
+Node: resource_set_contains_file               Result: FOUND (Pkg: engine, Kind: method)
+Node: write_string                             Result: NOT FOUND
+Node: UnloadSound                              Result: NOT FOUND
+Node: contains_file                            Result: FOUND (Pkg: archive, Kind: method)
+Node: s.pump_uploads                           Result: NOT FOUND
+Node: containers.resource_map_release          Result: FOUND (Pkg: containers, Kind: method)
+Node: context_create                           Result: NOT FOUND
+Node: s.load                                   Result: NOT FOUND
+Node: rl.TakeScreenshot                        Result: NOT FOUND
+Node: time.sleep                               Result: NOT FOUND
+Node: InputSourceType                          Result: FOUND (Pkg: engine, Kind: interface)
+Node: LoadImageFromMemory                      Result: NOT FOUND
+Node: archive.write_to_stream                  Result: FOUND (Pkg: archive, Kind: method)
+Node: file_info_slice_delete                   Result: NOT FOUND
+Node: bloom_filter_add                         Result: FOUND (Pkg: containers, Kind: method)
+Node: rl.DrawCircleSector                      Result: NOT FOUND
+Node: parse.skip_proc                          Result: FOUND (Pkg: parse, Kind: function)
+Node: Maybe                                    Result: NOT FOUND
+Node: spall.buffer_create                      Result: NOT FOUND
+Node: bytes.buffer_init_allocator              Result: NOT FOUND
+Node: buffer_destroy                           Result: NOT FOUND
+Node: read_stream_till_delimiter               Result: FOUND (Pkg: archive, Kind: function)
+Node: rl.UpdateTexture                         Result: NOT FOUND
+Node: rl.UnloadModelAnimations                 Result: NOT FOUND
+Node: preprocess_shader_expect_word            Result: FOUND (Pkg: shader, Kind: function)
+Node: reader_read_rune                         Result: NOT FOUND
+Node: GetRandomValue                           Result: NOT FOUND
+Node: pool_init                                Result: NOT FOUND
+Node: resource_set_read_file                   Result: FOUND (Pkg: engine, Kind: method)
+Node: cb                                       Result: NOT FOUND
+Node: read_at                                  Result: NOT FOUND
+Node: entity_table_init                        Result: FOUND (Pkg: engine, Kind: method)
+Node: surveyor_lens_init                       Result: FOUND (Pkg: engine, Kind: method)
+Node: bsp_build                                Result: FOUND (Pkg: map_compiler, Kind: function)
+Node: intrinsics.has_target_feature            Result: NOT FOUND
+Node: engine.game_init_server                  Result: FOUND (Pkg: engine, Kind: method)
+Node: get_hashes                               Result: FOUND (Pkg: containers, Kind: function)
+Node: json.destroy_value                       Result: NOT FOUND
+Node: table_iterator                           Result: FOUND (Pkg: containers, Kind: function)
+Node: back.print                               Result: FOUND (Pkg: back, Kind: method)
+Node: Vector3CrossProduct                      Result: NOT FOUND
+Node: rlgl.DisableBackfaceCulling              Result: NOT FOUND
+Node: quake.map_parser_init_from_file          Result: FOUND (Pkg: quake, Kind: method)
+Node: resource_set_print_sizes                 Result: FOUND (Pkg: engine, Kind: method)
+Node: os.read_at                               Result: NOT FOUND
+Node: allocator                                Result: FOUND (Pkg: archive, Kind: field)
+Node: zlib.compressBound                       Result: NOT FOUND
+Node: create                                   Result: NOT FOUND
+Node: GetCurrentMonitor                        Result: NOT FOUND
+Node: read_string_till                         Result: FOUND (Pkg: parse, Kind: function)
+Node: unlock                                   Result: NOT FOUND
+Node: UnloadMaterial                           Result: NOT FOUND
+Node: MeasureText                              Result: NOT FOUND
+Node: linalg.mul                               Result: NOT FOUND
+Node: peer_disconnect                          Result: NOT FOUND
+Node: row                                      Result: NOT FOUND
+Node: filepath.base                            Result: NOT FOUND
+Node: resource_pack_contains_file              Result: FOUND (Pkg: engine, Kind: method)
+Node: inflate_from_byte_array                  Result: NOT FOUND
+Node: strings.clone_to_cstring                 Result: NOT FOUND
+Node: en.packet_create                         Result: NOT FOUND
+Node: map_parser_read_point                    Result: FOUND (Pkg: quake, Kind: method)
+Node: fmt.sbprintf                             Result: NOT FOUND
+Node: back.trace                               Result: FOUND (Pkg: back, Kind: function)
+Node: list.iterate_prev                        Result: NOT FOUND
+Node: preprocess_shader_parse_include          Result: FOUND (Pkg: shader, Kind: method)
+Node: settings_to_saved                        Result: FOUND (Pkg: engine, Kind: function)
+Node: Vector3DotProduct                        Result: NOT FOUND
+Node: debugf                                   Result: NOT FOUND
+Node: game_init                                Result: FOUND (Pkg: engine, Kind: method)
+Node: SetTargetFPS                             Result: NOT FOUND
+Node: game_get_model_memory_bytes              Result: FOUND (Pkg: engine, Kind: method)
+Node: parse_mo_from_bytes                      Result: NOT FOUND
+Node: scan                                     Result: NOT FOUND
+Node: engine.bsp_collect_ray_candidates        Result: FOUND (Pkg: engine, Kind: method)
+Node: back.tracking_allocator_print_results    Result: FOUND (Pkg: back, Kind: method)
+Node: game_change_map_with_modifiers           Result: FOUND (Pkg: engine, Kind: method)
+Node: entity_destroy                           Result: FOUND (Pkg: quake, Kind: method)
+Node: back.lines                               Result: FOUND (Pkg: back, Kind: function)
+Node: bloom_size                               Result: FOUND (Pkg: containers, Kind: function)
+Node: log.infof                                Result: NOT FOUND
+Node: play_sound                               Result: FOUND (Pkg: engine, Kind: function)
+Node: engine.resource_pack_build_from_dir      Result: FOUND (Pkg: engine, Kind: method)
+Node: map_parser_read_plane                    Result: FOUND (Pkg: quake, Kind: method)
+Node: engine.plane_equation                    Result: FOUND (Pkg: engine, Kind: method)
+Node: engine.game_destroy_server               Result: FOUND (Pkg: engine, Kind: method)
+Node: containers.TableID                       Result: FOUND (Pkg: containers, Kind: struct)
+Node: entity_get_from_id                       Result: FOUND (Pkg: engine, Kind: method)
+Node: tracking_allocator_print_results         Result: FOUND (Pkg: back, Kind: method)
+Node: print                                    Result: FOUND (Pkg: bench, Kind: function)
+Node: ui_font_init                             Result: FOUND (Pkg: engine, Kind: function)
+Node: ray_get_shortest_collision               Result: FOUND (Pkg: map_compiler, Kind: function)
+Node: en.deinitialize                          Result: NOT FOUND
+Node: UnloadImage                              Result: NOT FOUND
+Node: mul                                      Result: NOT FOUND
+Node: file_loader                              Result: FOUND (Pkg: shader, Kind: field)
+Node: bsp_mark_ray_node                        Result: FOUND (Pkg: engine, Kind: method)
+Node: buffer_to_bytes                          Result: NOT FOUND
+Node: particle_system_load                     Result: FOUND (Pkg: engine, Kind: method)
+Node: release_cached_file                      Result: FOUND (Pkg: archive, Kind: method)
+Node: ui_elem_init_from_theme                  Result: FOUND (Pkg: engine, Kind: method)
+Node: net_client_init                          Result: FOUND (Pkg: engine, Kind: method)
+Node: convert_quake_map                        Result: FOUND (Pkg: map_compiler, Kind: function)
+Node: log.panicf                               Result: NOT FOUND
+Node: println                                  Result: NOT FOUND
+Node: bsp_union_aabb                           Result: FOUND (Pkg: map_compiler, Kind: method)
+Node: log.create_console_logger                Result: NOT FOUND
+Node: os.file_info_slice_delete                Result: NOT FOUND
+Node: archive.read_header_from_stream          Result: FOUND (Pkg: archive, Kind: method)
+Node: file_init                                Result: FOUND (Pkg: archive, Kind: struct)
+Node: audio_map_destroy                        Result: FOUND (Pkg: engine, Kind: function)
+Node: rl.GetCharPressed                        Result: NOT FOUND
+Node: BeginDrawing                             Result: NOT FOUND
+Node: GetMonitorWidth                          Result: NOT FOUND
+Node: write_rune                               Result: NOT FOUND
+Node: en.host_create                           Result: NOT FOUND
+Node: particle_table_init                      Result: FOUND (Pkg: engine, Kind: method)
+Node: bitfield_extract                         Result: NOT FOUND
+Node: rl.CloseWindow                           Result: NOT FOUND
+Node: plane_is_in_half_space                   Result: FOUND (Pkg: engine, Kind: method)
+Node: iterate_prev                             Result: NOT FOUND
+Node: containers.resource_map_get              Result: FOUND (Pkg: containers, Kind: method)
+Node: table.build                              Result: NOT FOUND
+Node: command_play                             Result: FOUND (Pkg: main, Kind: function)
+Node: host_create                              Result: NOT FOUND
+Node: state_stack_last                         Result: FOUND (Pkg: engine, Kind: method)
+Node: cos                                      Result: NOT FOUND
+Node: PlaySound                                Result: NOT FOUND
+Node: is_default_value                         Result: FOUND (Pkg: main, Kind: function)
+Node: back.tracking_allocator                  Result: FOUND (Pkg: back, Kind: struct)
+Node: ResourceMap                              Result: FOUND (Pkg: containers, Kind: struct)
+Node: mem.zero                                 Result: NOT FOUND
+Node: archive.get_file_raw                     Result: FOUND (Pkg: archive, Kind: method)
+Node: host_destroy                             Result: NOT FOUND
+Node: strings.split                            Result: NOT FOUND
+Node: histogram_set_push                       Result: FOUND (Pkg: engine, Kind: method)
+Node: histogram_set_get                        Result: FOUND (Pkg: engine, Kind: method)
+Node: resource_set_cache_stats                 Result: FOUND (Pkg: engine, Kind: method)
+Node: resource_set_release_file                Result: FOUND (Pkg: engine, Kind: method)
+Node: Modifiers                                Result: FOUND (Pkg: engine, Kind: field)
+Node: put_i32                                  Result: NOT FOUND
+Node: is_print                                 Result: NOT FOUND
+Node: sync.current_thread_id                   Result: NOT FOUND
+Node: rl.SetShaderValue                        Result: NOT FOUND
+Node: token_after_skip_proc                    Result: FOUND (Pkg: parse, Kind: function)
+Node: bufio.reader_buffered                    Result: NOT FOUND
+Node: new_state_loading                        Result: FOUND (Pkg: engine, Kind: function)
+Node: bprintf                                  Result: NOT FOUND
+Node: InitAudioDevice                          Result: NOT FOUND
+Node: texture_map_acquire                      Result: FOUND (Pkg: engine, Kind: function)
+Node: panicf                                   Result: NOT FOUND
+Node: LoadRenderTexture                        Result: NOT FOUND
+Node: write_fgd                                Result: FOUND (Pkg: main, Kind: method)
+Node: printfln                                 Result: NOT FOUND
+Node: UpdateTexture                            Result: NOT FOUND
+Node: containers.table_write_item_sync         Result: FOUND (Pkg: containers, Kind: function)
+Node: quake.map_parser_read                    Result: FOUND (Pkg: quake, Kind: method)
+Node: rl.GetRayCollisionMesh                   Result: NOT FOUND
+Node: fmt.ctprintf                             Result: NOT FOUND
+Node: rl.DrawCircleV                           Result: NOT FOUND
+Node: preprocess_shader_str                    Result: FOUND (Pkg: shader, Kind: method)
+Node: ui_font_destroy                          Result: FOUND (Pkg: engine, Kind: function)
+Node: resource_map_rm                          Result: FOUND (Pkg: containers, Kind: method)
+Node: base_building_destroy                    Result: FOUND (Pkg: engine, Kind: method)
+Node: thread.pool_add_task                     Result: NOT FOUND
+Node: os.read_entire_file                      Result: NOT FOUND
+Node: zlib.compress2                           Result: NOT FOUND
+Node: spall.SCOPED_EVENT                       Result: NOT FOUND
+Node: render                                   Result: NOT FOUND
+Node: free_all                                 Result: NOT FOUND
+Node: entity_table_destroy                     Result: FOUND (Pkg: engine, Kind: method)
+Node: map_parser_read_key_value_pair           Result: FOUND (Pkg: quake, Kind: method)
+Node: texture_map_init                         Result: FOUND (Pkg: engine, Kind: function)
+Node: strings.write_string                     Result: NOT FOUND
+Node: bufio.reader_read_rune                   Result: NOT FOUND
+Node: surveyor_lens_destroy                    Result: FOUND (Pkg: engine, Kind: method)
+Node: net_broadcasts                           Result: FOUND (Pkg: engine, Kind: method)
+Node: Vector3Length                            Result: NOT FOUND
+Node: engine.game_init_headless                Result: FOUND (Pkg: engine, Kind: method)
+Node: fmt.fprintf                              Result: NOT FOUND
+Node: query_features                           Result: NOT FOUND
+Node: thread_proc                              Result: NOT FOUND
+Node: rl.LoadModel                             Result: NOT FOUND
+Node: create_shader                            Result: FOUND (Pkg: shader, Kind: function)
+Node: rl.UnloadFont                            Result: NOT FOUND
+Node: quake.converted_entity_destroy           Result: FOUND (Pkg: quake, Kind: method)
+Node: destroy                                  Result: FOUND (Pkg: archive, Kind: method)
+Node: net_server_on_map_change                 Result: FOUND (Pkg: engine, Kind: method)
+Node: rl.SetExitKey                            Result: NOT FOUND
+Node: resource_set_init                        Result: FOUND (Pkg: engine, Kind: method)
+Node: UnloadModel                              Result: NOT FOUND
+Node: peek_token_after_skip_proc               Result: FOUND (Pkg: parse, Kind: function)
+Node: sincos                                   Result: NOT FOUND
+Node: table.row                                Result: NOT FOUND
+Node: resource_map_add                         Result: FOUND (Pkg: containers, Kind: method)
+Node: net_context_host                         Result: FOUND (Pkg: engine, Kind: method)
+Node: hash.crc32                               Result: NOT FOUND
+Node: rl.EndDrawing                            Result: NOT FOUND
+Node: lines_destroy                            Result: FOUND (Pkg: back, Kind: method)
+Node: bits.bitfield_insert                     Result: NOT FOUND
+Node: list.iterate_next                        Result: NOT FOUND
+Node: log.warnf                                Result: NOT FOUND
+Node: locale_font_path                         Result: FOUND (Pkg: engine, Kind: function)
+Node: create_buffered                          Result: NOT FOUND
+Node: pool_add_task                            Result: NOT FOUND
+Node: engine.schema_destroy                    Result: FOUND (Pkg: engine, Kind: method)
+Node: fibonacci_sphere_direction               Result: FOUND (Pkg: map_compiler, Kind: function)
+Node: map_keys                                 Result: NOT FOUND
+Node: clone                                    Result: NOT FOUND
+Node: archive.cache_stats                      Result: FOUND (Pkg: archive, Kind: method)
+Node: builder_len                              Result: NOT FOUND
+Node: brush_plane_intersection                 Result: FOUND (Pkg: quake, Kind: method)
+Node: sync.unlock                              Result: NOT FOUND
+Node: rl.DrawFPS                               Result: NOT FOUND
+Node: state_stack_free                         Result: FOUND (Pkg: engine, Kind: method)
+Node: containers.table_destroy                 Result: FOUND (Pkg: containers, Kind: function)
+Node: audio_map_acquire                        Result: FOUND (Pkg: engine, Kind: function)
+Node: net_is_headless                          Result: FOUND (Pkg: engine, Kind: method)
+Node: rl.GetScreenHeight                       Result: NOT FOUND
+Node: is_digit                                 Result: NOT FOUND
+Node: linalg.reflect                           Result: NOT FOUND
+Node: containers.table_init                    Result: FOUND (Pkg: containers, Kind: function)
+Node: table_init                               Result: FOUND (Pkg: containers, Kind: function)
+Node: en.peer_send                             Result: NOT FOUND
+Node: material_map_destroy                     Result: FOUND (Pkg: engine, Kind: function)
+Node: settings_load                            Result: FOUND (Pkg: engine, Kind: function)
+Node: rl.MouseButton                           Result: NOT FOUND
+Node: game_apply_pixelize_preset               Result: FOUND (Pkg: engine, Kind: method)
+Node: seek                                     Result: NOT FOUND
+Node: instrumentation                          Result: NOT FOUND
+Node: rl.MatrixTranspose                       Result: NOT FOUND
+Node: read_rune                                Result: FOUND (Pkg: parse, Kind: function)
+Node: start                                    Result: NOT FOUND
+Node: DrawTexturePro                           Result: NOT FOUND
+Node: locale_destroy                           Result: FOUND (Pkg: engine, Kind: function)
+Node: engine.game_destroy_headless             Result: FOUND (Pkg: engine, Kind: method)
+Node: unsafe_string_to_cstring                 Result: NOT FOUND
+Node: archive.put_file_bytes_raw               Result: FOUND (Pkg: archive, Kind: method)
+Node: parse.peek_rune                          Result: FOUND (Pkg: parse, Kind: function)
+Node: do_raytrace                              Result: FOUND (Pkg: map_compiler, Kind: function)
+Node: rl.GetScreenWidth                        Result: NOT FOUND
+Node: parse_macro                              Result: FOUND (Pkg: shader, Kind: function)
+Node: ClearBackground                          Result: NOT FOUND
+Node: DrawFPS                                  Result: NOT FOUND
+Node: containers.table_get                     Result: FOUND (Pkg: containers, Kind: function)
+Node: particle_table_destroy                   Result: FOUND (Pkg: engine, Kind: method)
+Node: rl.SetWindowPosition                     Result: NOT FOUND
+Node: resource_pack_build_from_dir             Result: FOUND (Pkg: engine, Kind: method)
+Node: unicode.is_digit                         Result: NOT FOUND
+Node: Vector3Transform                         Result: NOT FOUND
+Node: fmt.eprintln                             Result: NOT FOUND
+Node: locale_init                              Result: FOUND (Pkg: engine, Kind: function)
+Node: slice.sort_by                            Result: NOT FOUND
+Node: resource_map_init                        Result: FOUND (Pkg: containers, Kind: method)
+Node: pump_uploads                             Result: NOT FOUND
+Node: acos                                     Result: NOT FOUND
+Node: DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD        Result: NOT FOUND
+Node: settings_from_saved                      Result: FOUND (Pkg: engine, Kind: method)
+Node: to_string                                Result: NOT FOUND
+Node: net_client_send_ready                    Result: FOUND (Pkg: engine, Kind: method)
+Node: read_entire_file_from_path               Result: NOT FOUND
+Node: unmarshal                                Result: NOT FOUND
+Node: fprint                                   Result: NOT FOUND
+Node: quake.map_parser_destroy                 Result: FOUND (Pkg: quake, Kind: method)
+Node: audio_map_init                           Result: FOUND (Pkg: engine, Kind: function)
+Node: bits.bitfield_extract                    Result: NOT FOUND
+Node: quake.parse_vec3                         Result: FOUND (Pkg: quake, Kind: function)
+Node: strings.has_prefix                       Result: NOT FOUND
+Node: replace_all                              Result: NOT FOUND
+Node: load_modifier_def                        Result: FOUND (Pkg: engine, Kind: function)
+Node: slice.sort                               Result: NOT FOUND
+Node: rl.SetTextureFilter                      Result: NOT FOUND
+Node: rl.SetLoadFileDataCallback               Result: NOT FOUND
+Node: containers.resource_map_init             Result: FOUND (Pkg: containers, Kind: method)
+Node: endian.put_i32                           Result: NOT FOUND
+Node: wait_group_wait                          Result: NOT FOUND
+Node: exit                                     Result: NOT FOUND
+Node: game_get_file_as_u8                      Result: FOUND (Pkg: engine, Kind: method)
+Node: history                                  Result: FOUND (Pkg: engine, Kind: field)
+Node: clock                                    Result: NOT FOUND
+Node: table_iterator_next                      Result: FOUND (Pkg: containers, Kind: function)
+Node: settings_save                            Result: FOUND (Pkg: engine, Kind: function)
+Node: option                                   Result: NOT FOUND
+Node: thread.pool_finish                       Result: NOT FOUND
+Node: contains                                 Result: NOT FOUND
+Node: parse.read_rune                          Result: FOUND (Pkg: parse, Kind: function)
+Node: json.marshal_to_writer                   Result: NOT FOUND
+Node: lightmap                                 Result: FOUND (Pkg: map_compiler, Kind: function)
+Node: odin_zlib.inflate_from_byte_array        Result: NOT FOUND
+Node: chan.destroy                             Result: NOT FOUND
+Node: bufio.reader_init                        Result: NOT FOUND
+Node: containers.table_length                  Result: FOUND (Pkg: containers, Kind: function)
+Node: animation_table_init                     Result: FOUND (Pkg: engine, Kind: method)
+Node: load                                     Result: NOT FOUND
+Node: resource_pack_destroy                    Result: FOUND (Pkg: engine, Kind: method)
+Node: parse_fgd                                Result: FOUND (Pkg: main, Kind: function)
+Node: SCOPED_EVENT                             Result: NOT FOUND
+Node: fmt.printfln                             Result: NOT FOUND
+Node: list.iterator_tail                       Result: NOT FOUND
+Node: perm_number                              Result: NOT FOUND
+Node: bitfield_insert                          Result: NOT FOUND
+Node: file_destroy                             Result: FOUND (Pkg: archive, Kind: struct)
+Node: shader.create_shader                     Result: FOUND (Pkg: shader, Kind: function)
+Node: bytes.buffer_destroy                     Result: NOT FOUND
+Node: character_def_destructor                 Result: FOUND (Pkg: engine, Kind: method)
+Node: DrawRectangle                            Result: NOT FOUND
+Node: strings.intern_destroy                   Result: NOT FOUND
+Node: consume_token                            Result: FOUND (Pkg: parse, Kind: function)
+Node: skip_fn                                  Result: NOT FOUND
+Node: converted_entity_destroy                 Result: FOUND (Pkg: quake, Kind: method)
+Node: plane_equation                           Result: FOUND (Pkg: engine, Kind: method)
+Node: item_destroy                             Result: FOUND (Pkg: containers, Kind: field)
+Node: strings.join                             Result: NOT FOUND
+Node: pixelize_preset_dims                     Result: FOUND (Pkg: engine, Kind: function)
+Node: time.now                                 Result: NOT FOUND
+Node: BeginTextureMode                         Result: NOT FOUND
+Node: dir                                      Result: FOUND (Pkg: shader, Kind: field)
+Node: bytes.buffer_write_to                    Result: NOT FOUND
+Node: host_service                             Result: NOT FOUND
+Node: rl.GetFontDefault                        Result: NOT FOUND
+Node: net_client_destroy                       Result: FOUND (Pkg: engine, Kind: method)
+Node: s.post_load                              Result: NOT FOUND
+Node: rl.SetTargetFPS                          Result: NOT FOUND
+Node: rl.SetSoundVolume                        Result: NOT FOUND
+Node: game_sync_post_process_uniforms          Result: FOUND (Pkg: engine, Kind: method)
+Node: en.peer_disconnect                       Result: NOT FOUND
+Node: table.write_table_cell                   Result: NOT FOUND
+Node: get_processor_core_count                 Result: NOT FOUND
+Node: unmarshal_any                            Result: NOT FOUND
+Node: model_load_named                         Result: FOUND (Pkg: engine, Kind: function)
+Node: clean                                    Result: NOT FOUND
+Node: pool_finish                              Result: NOT FOUND
+Node: plane_distance                           Result: FOUND (Pkg: quake, Kind: method)
+Node: engine.mem_counter_init                  Result: FOUND (Pkg: engine, Kind: method)
+Node: filepath.ext                             Result: NOT FOUND
+Node: strings.trim_right                       Result: NOT FOUND
+Node: parse_macro_file                         Result: FOUND (Pkg: shader, Kind: function)
+Node: SetLoadFileDataCallback                  Result: NOT FOUND
+Node: animation_load                           Result: FOUND (Pkg: engine, Kind: method)
+Node: join                                     Result: FOUND (Pkg: engine, Kind: field)
+Node: runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD Result: NOT FOUND
+Node: map_set_destructor                       Result: FOUND (Pkg: engine, Kind: method)
+Node: mem_counter_bytes                        Result: FOUND (Pkg: engine, Kind: method)
+Node: filepath.split                           Result: NOT FOUND
+Node: resource_pack_add_file                   Result: FOUND (Pkg: engine, Kind: method)
+Node: resource_map_destroy                     Result: FOUND (Pkg: containers, Kind: method)
+Node: SetExitKey                               Result: NOT FOUND
+Node: preprocess_shader_parse_use              Result: FOUND (Pkg: shader, Kind: method)
+Node: lighting_grid_destroy                    Result: FOUND (Pkg: engine, Kind: method)
+Node: quake.get_lights                         Result: FOUND (Pkg: quake, Kind: function)
+Node: os.read_dir                              Result: NOT FOUND
+Node: TableItem                                Result: FOUND (Pkg: containers, Kind: struct)
+Node: InitWindow                               Result: NOT FOUND
+Node: mem_counter_init                         Result: FOUND (Pkg: engine, Kind: method)
+Node: BloomFilter                              Result: FOUND (Pkg: containers, Kind: struct)
+Node: date                                     Result: NOT FOUND
+Node: Ring                                     Result: FOUND (Pkg: containers, Kind: struct)
+Node: os.close                                 Result: NOT FOUND
+Node: trim_space                               Result: NOT FOUND
+Node: rl.LoadModelAnimations                   Result: NOT FOUND
+Node: delete_key                               Result: NOT FOUND
+Node: converted_plane_destroy                  Result: FOUND (Pkg: quake, Kind: method)
+Node: resource_set_for_each                    Result: FOUND (Pkg: engine, Kind: method)
+Node: parse_int                                Result: NOT FOUND
+Node: schema_destroy                           Result: FOUND (Pkg: engine, Kind: method)
+Node: rl.Vector3DotProduct                     Result: NOT FOUND
+Node: math.sincos                              Result: NOT FOUND
+Node: run_with_poly_data4                      Result: NOT FOUND
+Node: has_prefix                               Result: NOT FOUND
+Node: parse.read_string_till                   Result: FOUND (Pkg: parse, Kind: function)
+Node: gen_models                               Result: FOUND (Pkg: quake, Kind: function)
+Node: lightmap_run_threadpool                  Result: FOUND (Pkg: map_compiler, Kind: function)
+Node: en.initialize                            Result: NOT FOUND
+Node: net_is_authoritative                     Result: FOUND (Pkg: engine, Kind: method)
+Node: entity_table_push                        Result: FOUND (Pkg: engine, Kind: method)
+Node: engine.resource_pack_init                Result: FOUND (Pkg: engine, Kind: method)
+Node: plane_contains_vertex                    Result: FOUND (Pkg: quake, Kind: method)
+Node: log.error                                Result: NOT FOUND
+Node: game_get_file_as_image                   Result: FOUND (Pkg: engine, Kind: method)
+Node: game_change_map                          Result: FOUND (Pkg: engine, Kind: method)
+Node: parse.read_int                           Result: FOUND (Pkg: parse, Kind: function)
+Node: histogram_set_render                     Result: FOUND (Pkg: engine, Kind: method)
+Node: tracking_allocator_destroy               Result: FOUND (Pkg: back, Kind: method)
+Node: back.trace_n                             Result: FOUND (Pkg: back, Kind: function)
+Node: d                                        Result: FOUND (Pkg: engine, Kind: field)
+Node: net_server_init                          Result: FOUND (Pkg: engine, Kind: method)
+Node: rl.IsKeyPressed                          Result: NOT FOUND
+Node: rl.GetMeshBoundingBox                    Result: NOT FOUND
+Node: bake_lighting_grid                       Result: FOUND (Pkg: map_compiler, Kind: function)
+Node: archive.init                             Result: FOUND (Pkg: archive, Kind: method)
+Node: to_writer                                Result: NOT FOUND
+Node: context_destroy                          Result: NOT FOUND
+Node: time.clock                               Result: NOT FOUND
+Node: intrinsics.atomic_load                   Result: NOT FOUND
+Node: rl.EndShaderMode                         Result: NOT FOUND
+Node: rl.ToggleFullscreen                      Result: NOT FOUND
+Node: game_release_file                        Result: FOUND (Pkg: engine, Kind: method)
+Node: rl.EnableCursor                          Result: NOT FOUND
+Node: split                                    Result: NOT FOUND
+Node: command_pack                             Result: FOUND (Pkg: main, Kind: function)
+Node: resource_set_destroy                     Result: FOUND (Pkg: engine, Kind: method)
+Node: strings.to_lower                         Result: NOT FOUND
+Node: bsp_collect_ray_candidates               Result: FOUND (Pkg: engine, Kind: method)
+Node: GetRayCollisionBox                       Result: NOT FOUND
+Node: parse_seed                               Result: FOUND (Pkg: engine, Kind: function)
+Node: engine.game_run_client                   Result: FOUND (Pkg: engine, Kind: method)
+Node: put_file_bytes_raw                       Result: FOUND (Pkg: archive, Kind: method)
+Node: iterator_tail                            Result: NOT FOUND
+Node: EndShaderMode                            Result: NOT FOUND
+Node: rl.GetRandomValue                        Result: NOT FOUND
+Node: fprintf                                  Result: NOT FOUND
+Node: entity_destroy_components                Result: FOUND (Pkg: engine, Kind: method)
+Node: schema                                   Result: FOUND (Pkg: engine, Kind: field)
+Node: mem.tracking_allocator_destroy           Result: NOT FOUND
+Node: info                                     Result: NOT FOUND
+Node: deinitialize                             Result: NOT FOUND
+Node: net_client_drain_stale_packets           Result: FOUND (Pkg: engine, Kind: method)
+Node: Vector3Equals                            Result: NOT FOUND
+Node: time.date                                Result: NOT FOUND
+Node: rl.LoadTextureFromImage                  Result: NOT FOUND
+Node: containers.table_iterator                Result: FOUND (Pkg: containers, Kind: function)
+Node: parse.peek_token_after_skip_proc         Result: FOUND (Pkg: parse, Kind: function)
+Node: engine.lighting_grid_init                Result: FOUND (Pkg: engine, Kind: method)
+Node: io.write                                 Result: NOT FOUND
+Node: engine.mem_counting_allocator            Result: FOUND (Pkg: engine, Kind: method)
+Node: address_set_host                         Result: NOT FOUND
+Node: DrawText                                 Result: NOT FOUND
+Node: plane_sort_comparator                    Result: FOUND (Pkg: quake, Kind: method)
+Node: entity_get_component                     Result: FOUND (Pkg: engine, Kind: method)
+Node: fnv32                                    Result: NOT FOUND
+Node: push_back                                Result: NOT FOUND
+Node: SetWindowPosition                        Result: NOT FOUND
+Node: filepath.dir                             Result: NOT FOUND
+Node: strings.index                            Result: NOT FOUND
+Node: strings.split_n                          Result: NOT FOUND
+Node: bytes.buffer_to_bytes                    Result: NOT FOUND
+Node: chan.send                                Result: NOT FOUND
+Node: back.tracking_allocator_init             Result: FOUND (Pkg: back, Kind: method)
+Node: audio_entity_created_listener            Result: FOUND (Pkg: engine, Kind: function)
+Node: vehicle_dismount                         Result: FOUND (Pkg: engine, Kind: function)
+Node: rl.Vector3Normalize                      Result: NOT FOUND
+Node: rl.Vector3                               Result: NOT FOUND
+Node: ext                                      Result: NOT FOUND
+Node: rl.MeasureText                           Result: NOT FOUND
+Node: rl.MemAllocator                          Result: NOT FOUND
+Node: engine.entity_create_def                 Result: FOUND (Pkg: engine, Kind: function)
+Node: plane_sort_vertices                      Result: FOUND (Pkg: quake, Kind: method)
+Node: bsp_make_leaf                            Result: FOUND (Pkg: map_compiler, Kind: function)
+Node: engine.resource_pack_destroy             Result: FOUND (Pkg: engine, Kind: method)
+Node: pool_destroy                             Result: NOT FOUND
+Node: rl.Vector3Equals                         Result: NOT FOUND
+Node: apply_light_from_collision               Result: FOUND (Pkg: map_compiler, Kind: function)
+Node: build                                    Result: NOT FOUND
+Node: open                                     Result: FOUND (Pkg: engine, Kind: field)
+Node: histogram_render                         Result: FOUND (Pkg: engine, Kind: method)
+Node: preprocess_shader_handle_err             Result: FOUND (Pkg: shader, Kind: function)
+Node: rl.UnloadMesh                            Result: NOT FOUND
+Node: destroy_color_table                      Result: FOUND (Pkg: map_compiler, Kind: function)
+Node: back.lines_destroy                       Result: FOUND (Pkg: back, Kind: method)
+Node: buffer_create                            Result: NOT FOUND
+Node: panic                                    Result: NOT FOUND
+Node: intern_get                               Result: NOT FOUND
+Node: load_weapon_def                          Result: FOUND (Pkg: engine, Kind: function)
+Node: containers.TableItem                     Result: FOUND (Pkg: containers, Kind: struct)
+Node: table.init                               Result: NOT FOUND
+Node: sync.lock                                Result: NOT FOUND
+Node: parse_uint                               Result: NOT FOUND
+Node: MemAllocator                             Result: NOT FOUND
+Node: map_parser_read                          Result: FOUND (Pkg: quake, Kind: method)
+Node: rl.PlaySound                             Result: NOT FOUND
+Node: Chan                                     Result: NOT FOUND
+Node: audio_map_release                        Result: FOUND (Pkg: engine, Kind: function)
+Node: quake.gen_models                         Result: FOUND (Pkg: quake, Kind: function)
+Node: write_int                                Result: NOT FOUND
+Node: resource_pack_get_file                   Result: FOUND (Pkg: engine, Kind: method)
+Node: time.stopwatch_start                     Result: NOT FOUND
+Node: EntityTeam                               Result: FOUND (Pkg: engine, Kind: interface)
+Node: TableID                                  Result: FOUND (Pkg: containers, Kind: struct)
+Node: avg                                      Result: NOT FOUND
+Node: LoadTextureFromImage                     Result: NOT FOUND
+Node: rl.Vector3Length                         Result: NOT FOUND
+Node: game_run_client                          Result: FOUND (Pkg: engine, Kind: method)
+Node: Vector3RotateByAxisAngle                 Result: NOT FOUND
+Node: gamemode.render_ui                       Result: NOT FOUND
+Node: os.to_reader                             Result: NOT FOUND
+Node: map_write_to_stream                      Result: FOUND (Pkg: engine, Kind: method)
+Node: mem_counting_allocator                   Result: FOUND (Pkg: engine, Kind: method)
+Node: gamemode.update                          Result: NOT FOUND
+Node: plane_destroy                            Result: FOUND (Pkg: engine, Kind: method)
+Node: containers.table_write_to_stream         Result: FOUND (Pkg: containers, Kind: function)
+Node: update                                   Result: NOT FOUND
+Node: LoadSoundFromWave                        Result: NOT FOUND
+Node: clear                                    Result: FOUND (Pkg: engine, Kind: field)
+Node: sync.wait_group_done                     Result: NOT FOUND
+Node: game_destroy_server                      Result: FOUND (Pkg: engine, Kind: method)
+Node: rl.SetConfigFlags                        Result: NOT FOUND
+Node: strings.split_lines                      Result: NOT FOUND
+Node: marshal                                  Result: NOT FOUND
+Node: rl.UnloadSound                           Result: NOT FOUND
+Node: modifier_def_destructor                  Result: FOUND (Pkg: engine, Kind: method)
+Node: LoadFontFromMemory                       Result: NOT FOUND
+Node: resource_pack_read_dir                   Result: FOUND (Pkg: engine, Kind: method)
+Node: light_table_destroy                      Result: FOUND (Pkg: engine, Kind: method)
+Node: put_f32                                  Result: NOT FOUND
+Node: decode_header_from_reader                Result: FOUND (Pkg: archive, Kind: method)
+Node: murmur32                                 Result: NOT FOUND
+Node: EnableCursor                             Result: NOT FOUND
+Node: LoadWaveFromMemory                       Result: NOT FOUND
+Node: dev_console_destroy                      Result: FOUND (Pkg: engine, Kind: method)
+Node: translate_point                          Result: FOUND (Pkg: quake, Kind: function)
+Node: game_run_server                          Result: FOUND (Pkg: engine, Kind: method)
+Node: cache_stats                              Result: FOUND (Pkg: archive, Kind: method)
+Node: ToggleFullscreen                         Result: NOT FOUND
+Node: glob                                     Result: NOT FOUND
+Node: game_get_file                            Result: FOUND (Pkg: engine, Kind: method)
+Node: rl.LoadSoundFromWave                     Result: NOT FOUND
+Node: MatrixTranspose                          Result: NOT FOUND
+Node: unread_rune                              Result: FOUND (Pkg: parse, Kind: function)
+Node: rl.GamepadButton                         Result: NOT FOUND
+Node: rl.LoadWaveFromMemory                    Result: NOT FOUND
+Node: engine.game_run                          Result: FOUND (Pkg: engine, Kind: method)
+Node: command_help                             Result: FOUND (Pkg: main, Kind: function)
+Node: plane_normal                             Result: FOUND (Pkg: engine, Kind: method)
+Node: math.sin                                 Result: NOT FOUND
+Node: input_source_to_json                     Result: FOUND (Pkg: engine, Kind: function)
+Node: io.write_byte                            Result: NOT FOUND
+Node: containers.table_delete                  Result: FOUND (Pkg: containers, Kind: function)
+Node: tex_name_to_file_path                    Result: FOUND (Pkg: engine, Kind: function)
+Node: entity_create_def                        Result: FOUND (Pkg: engine, Kind: function)
+Node: engine.game_destroy                      Result: FOUND (Pkg: engine, Kind: method)
+Node: strings.clone                            Result: NOT FOUND
+Node: v                                        Result: NOT FOUND
+Node: UnloadMesh                               Result: NOT FOUND
+Node: os.exists                                Result: NOT FOUND
+Node: spall.context_destroy                    Result: NOT FOUND
+Node: buffer_write_rune                        Result: NOT FOUND
+Node: spec.try_spawn                           Result: NOT FOUND
+Node: rel                                      Result: NOT FOUND
+Node: collider_table_destroy                   Result: FOUND (Pkg: engine, Kind: method)
+Node: Matrix                                   Result: NOT FOUND
+Node: crc32                                    Result: NOT FOUND
+Node: resource_pack_bytes                      Result: FOUND (Pkg: engine, Kind: method)
+Node: errorf                                   Result: NOT FOUND
+Node: exec                                     Result: FOUND (Pkg: engine, Kind: field)
+Node: rl.Vector3Distance                       Result: NOT FOUND
+Node: os.perm_number                           Result: NOT FOUND
+Node: GetScreenHeight                          Result: NOT FOUND
+Node: fmt.fprint                               Result: NOT FOUND
+Node: Vector3Normalize                         Result: NOT FOUND
+Node: en.host_service                          Result: NOT FOUND
+Node: clamp                                    Result: NOT FOUND
+Node: containers.bloom_filter_contains         Result: FOUND (Pkg: containers, Kind: method)
+Node: histogram_set_destroy                    Result: FOUND (Pkg: engine, Kind: method)
+Node: skip_proc                                Result: FOUND (Pkg: parse, Kind: function)
+Node: sort_by                                  Result: NOT FOUND
+Node: DisableCursor                            Result: NOT FOUND
+Node: unordered_remove                         Result: NOT FOUND
+Node: bsp_tree_destroy                         Result: FOUND (Pkg: engine, Kind: method)
+Node: current_thread_id                        Result: NOT FOUND
+Node: fmt.tprintf                              Result: NOT FOUND
+Node: game_start_scoped_timer                  Result: FOUND (Pkg: engine, Kind: method)
+Node: rl.ClearBackground                       Result: NOT FOUND
+Node: model_table_destroy                      Result: FOUND (Pkg: engine, Kind: method)
+Node: rl.SetWindowSize                         Result: NOT FOUND
+Node: ranges                                   Result: NOT FOUND
+Node: engine.resource_pack_write               Result: FOUND (Pkg: engine, Kind: method)
+Node: dev_console_execute                      Result: FOUND (Pkg: engine, Kind: method)
+Node: EndTextureMode                           Result: NOT FOUND
+Node: BeginShaderMode                          Result: NOT FOUND
+Node: pop                                      Result: NOT FOUND
+Node: modifiers                                Result: FOUND (Pkg: engine, Kind: field)
+Node: buffer_write_to                          Result: NOT FOUND
+Node: resource_map_rm_no_lock                  Result: FOUND (Pkg: containers, Kind: method)
+Node: strings.builder_len                      Result: NOT FOUND
+Node: DrawRectangleLinesEx                     Result: NOT FOUND
+Node: eprintfln                                Result: NOT FOUND
+Node: reader_init                              Result: NOT FOUND
+Node: rl.BeginDrawing                          Result: NOT FOUND
+Node: GetMonitorPosition                       Result: NOT FOUND
+Node: spec.destroy                             Result: NOT FOUND
+Node: brush_destroy                            Result: FOUND (Pkg: quake, Kind: method)
+Node: plane_add_vertex_if_not_present          Result: FOUND (Pkg: quake, Kind: method)
+Node: strings.replace_all                      Result: NOT FOUND
+Node: load_map_set_def                         Result: FOUND (Pkg: engine, Kind: function)
+Node: raw_data                                 Result: NOT FOUND
+Node: list.pop_back                            Result: NOT FOUND
+Node: itself                                   Result: NOT FOUND
+Node: rl.LoadFontFromMemory                    Result: NOT FOUND
+Node: billboard_change_animation_id            Result: FOUND (Pkg: engine, Kind: method)
+Node: WindowShouldClose                        Result: NOT FOUND
+Node: packet_create                            Result: NOT FOUND
+Node: Vector3                                  Result: NOT FOUND
+Node: trim                                     Result: NOT FOUND
+Node: concatenate                              Result: NOT FOUND
+Node: sync.wait_group_wait                     Result: NOT FOUND
+Node: engine.dev_console_logger                Result: FOUND (Pkg: engine, Kind: method)
+Node: strings.intern_init                      Result: NOT FOUND
+Node: thread.start                             Result: NOT FOUND
+Node: histogram_set_add                        Result: FOUND (Pkg: engine, Kind: method)
+Node: file_header_destroy                      Result: FOUND (Pkg: archive, Kind: method)
+Node: rl.LoadImageFromMemory                   Result: NOT FOUND
+Node: read_quoted_string                       Result: FOUND (Pkg: parse, Kind: function)
+Node: rl.DrawTexturePro                        Result: NOT FOUND
+Node: archive.contains_file                    Result: FOUND (Pkg: archive, Kind: method)
+Node: SetSoundVolume                           Result: NOT FOUND
+Node: factor                                   Result: NOT FOUND
+Node: index                                    Result: NOT FOUND
+Node: os.to_stream                             Result: NOT FOUND
+Node: os.read_entire_file_from_path            Result: NOT FOUND
+Node: short_stem                               Result: NOT FOUND
+Node: dev_console_print                        Result: FOUND (Pkg: engine, Kind: method)
+Node: TakeScreenshot                           Result: NOT FOUND
+Node: net_broadcast_reliable                   Result: FOUND (Pkg: engine, Kind: function)
+Node: dev_console_register                     Result: FOUND (Pkg: engine, Kind: method)
+Node: set_int                                  Result: NOT FOUND
+Node: encode_files_to_writer                   Result: FOUND (Pkg: archive, Kind: method)
+Node: resource_pack_init                       Result: FOUND (Pkg: engine, Kind: method)
+Node: mem.tracking_allocator                   Result: NOT FOUND
+Node: containers.resource_map_destroy          Result: FOUND (Pkg: containers, Kind: method)
+Node: en.address_set_host                      Result: NOT FOUND
+Node: write_schema_to_file                     Result: FOUND (Pkg: map_compiler, Kind: function)
+Node: containers.table_iterator_next           Result: FOUND (Pkg: containers, Kind: function)
+Node: trim_right                               Result: NOT FOUND
+Node: SetShaderValue                           Result: NOT FOUND
+Node: rl.Vector3CrossProduct                   Result: NOT FOUND
+Node: rl.Matrix                                Result: NOT FOUND
+Node: intern_init                              Result: NOT FOUND
+Node: UnloadTexture                            Result: NOT FOUND
+Node: entry.exec                               Result: NOT FOUND
+Node: rl.BeginShaderMode                       Result: NOT FOUND
+Node: math.acos                                Result: NOT FOUND
+Node: sync.wait_group_add                      Result: NOT FOUND
+Node: dev_console_update                       Result: FOUND (Pkg: engine, Kind: method)
+Node: engine.game_init                         Result: FOUND (Pkg: engine, Kind: method)
+Node: input_source_from_json                   Result: FOUND (Pkg: engine, Kind: method)
+Node: get_pan_dist_from_player                 Result: FOUND (Pkg: engine, Kind: function)
+Node: quake.map_destroy                        Result: FOUND (Pkg: quake, Kind: method)
+Node: resource_set_get_file                    Result: FOUND (Pkg: engine, Kind: method)
+Node: strings.trim_space                       Result: NOT FOUND
+Node: rl.KeyboardKey                           Result: NOT FOUND
+Node: resource_pack_write                      Result: FOUND (Pkg: engine, Kind: method)
+Node: light_do_raytrace                        Result: FOUND (Pkg: map_compiler, Kind: function)
+Node: base_building_init                       Result: FOUND (Pkg: engine, Kind: method)
+Node: containers.ring_push                     Result: FOUND (Pkg: containers, Kind: method)
+Node: fmt.bprintf                              Result: NOT FOUND
+Node: chunk_radius_set                         Result: FOUND (Pkg: worldgen, Kind: method)
+Node: new_light                                Result: FOUND (Pkg: engine, Kind: method)
+Node: get_entities                             Result: FOUND (Pkg: quake, Kind: function)
+Node: write_array                              Result: NOT FOUND
+Node: readable                                 Result: NOT FOUND
+Node: os.get_processor_core_count              Result: NOT FOUND
+Node: math.min                                 Result: NOT FOUND
+Node: rl.Vector2Angle                          Result: NOT FOUND
+Node: containers.resource_map_add              Result: FOUND (Pkg: containers, Kind: method)
+Node: metadata                                 Result: NOT FOUND
+Node: rm.item_destroy                          Result: NOT FOUND
+Node: worldgen.chunk_radius_set                Result: FOUND (Pkg: worldgen, Kind: method)
+Node: ui_element_add_child                     Result: FOUND (Pkg: engine, Kind: method)
+Node: point_light_table_destroy                Result: FOUND (Pkg: engine, Kind: method)
+Node: pop_back                                 Result: NOT FOUND
+Node: Vector2Angle                             Result: NOT FOUND
+Node: strings.builder_destroy                  Result: NOT FOUND
+Node: game_run_host                            Result: FOUND (Pkg: engine, Kind: method)
+Node: chan.create_buffered                     Result: NOT FOUND
+Node: write_byte                               Result: NOT FOUND
+Node: histogram_set_init                       Result: FOUND (Pkg: engine, Kind: method)
+Node: KeyboardKey                              Result: NOT FOUND
+Node: SetWindowSize                            Result: NOT FOUND
+Node: Vector3Distance                          Result: NOT FOUND
+Node: i18n.parse_mo_from_bytes                 Result: NOT FOUND
+Node: json.marshal                             Result: NOT FOUND
+Node: brush_identify_all_vertices              Result: FOUND (Pkg: quake, Kind: method)
+Node: engine.resource_map_contains             Result: FOUND (Pkg: engine, Kind: struct)
+Node: create_color_table                       Result: FOUND (Pkg: map_compiler, Kind: function)
+Node: reader_destroy                           Result: NOT FOUND
+Node: EndDrawing                               Result: NOT FOUND
+Node: game_destroy_headless                    Result: FOUND (Pkg: engine, Kind: method)
+Node: lines                                    Result: FOUND (Pkg: engine, Kind: field)
+Node: trace_n                                  Result: FOUND (Pkg: back, Kind: function)
+Node: game_init_server                         Result: FOUND (Pkg: engine, Kind: method)
+Node: iterate_next                             Result: NOT FOUND
+Node: rl.UnloadMaterial                        Result: NOT FOUND
+Node: strconv.parse_int                        Result: NOT FOUND
+Node: SetConfigFlags                           Result: NOT FOUND
+Node: entity_def_destructor                    Result: FOUND (Pkg: engine, Kind: function)
+Node: rl.WindowShouldClose                     Result: NOT FOUND
+Node: rl.InitWindow                            Result: NOT FOUND
+Node: game_get_file_as_texture                 Result: FOUND (Pkg: engine, Kind: method)
+Node: i18n.destroy                             Result: NOT FOUND
+Node: rl.CloseAudioDevice                      Result: NOT FOUND
+Node: math.abs                                 Result: NOT FOUND
+Node: game_init_headless                       Result: FOUND (Pkg: engine, Kind: method)
+Node: sbprintf                                 Result: NOT FOUND
+Node: player_apply_character                   Result: FOUND (Pkg: engine, Kind: function)
+Node: parse_all_macros                         Result: FOUND (Pkg: shader, Kind: function)
+Node: compress2                                Result: NOT FOUND
+Node: lighting_grid_init                       Result: FOUND (Pkg: engine, Kind: method)
+Node: rl.GetMonitorWidth                       Result: NOT FOUND
+Node: rl.GetMonitorPosition                    Result: NOT FOUND
+Node: map_table_init                           Result: FOUND (Pkg: engine, Kind: method)
+Node: list.push_back                           Result: NOT FOUND
+Node: base                                     Result: FOUND (Pkg: main, Kind: field)
+Node: UnloadRenderTexture                      Result: NOT FOUND
+Node: UnloadShader                             Result: NOT FOUND
+Node: wait_group_done                          Result: NOT FOUND
+Node: file_write                               Result: FOUND (Pkg: archive, Kind: struct)
+Node: en.packet_destroy                        Result: NOT FOUND
+Node: new_state_main_menu                      Result: FOUND (Pkg: engine, Kind: function)
+Node: back.trace_fill                          Result: FOUND (Pkg: back, Kind: function)
+Node: rl.DisableCursor                         Result: NOT FOUND
+Node: os.seek                                  Result: NOT FOUND
+Node: parse.read_float                         Result: FOUND (Pkg: parse, Kind: function)
+Node: closed                                   Result: NOT FOUND
+Node: LoadModel                                Result: NOT FOUND
+Node: GetShaderLocation                        Result: NOT FOUND
+Node: main                                     Result: FOUND (Pkg: main, Kind: function)
+Node: bufio.reader_destroy                     Result: NOT FOUND
+Node: thread.create                            Result: NOT FOUND
+Node: net_packet_bytes                         Result: FOUND (Pkg: engine, Kind: function)
+Node: GetFontDefault                           Result: NOT FOUND
+Node: game_load_shader                         Result: FOUND (Pkg: engine, Kind: method)
+Node: write_f32                                Result: NOT FOUND
+Node: wait_group_add                           Result: NOT FOUND
+Node: state_stack_update                       Result: FOUND (Pkg: engine, Kind: method)
+Node: intern_destroy                           Result: NOT FOUND
+Node: table_write_item_sync                    Result: FOUND (Pkg: containers, Kind: function)
+Node: flags                                    Result: FOUND (Pkg: engine, Kind: field)
+Node: game_run                                 Result: FOUND (Pkg: engine, Kind: method)
+Node: host_broadcast                           Result: NOT FOUND
+Node: io.write_quoted_string                   Result: NOT FOUND
+Node: weapon_def_destructor                    Result: FOUND (Pkg: engine, Kind: function)
+Node: load_character_def                       Result: FOUND (Pkg: engine, Kind: function)
+Node: IsKeyPressed                             Result: NOT FOUND
+Node: UnloadFont                               Result: NOT FOUND
+Node: pool_start                               Result: NOT FOUND
+Node: animation_table_clear_billboards         Result: FOUND (Pkg: engine, Kind: method)
+Node: tracking_allocator_init                  Result: FOUND (Pkg: back, Kind: method)
+Node: json.unmarshal_any                       Result: NOT FOUND
+Node: strings.builder_make                     Result: NOT FOUND
+Node: to_reader                                Result: NOT FOUND
+Node: containers.resource_map_acquire          Result: FOUND (Pkg: containers, Kind: method)
+Node: net_server_on_entity_spawned             Result: FOUND (Pkg: engine, Kind: method)
+Node: reflections                              Result: NOT FOUND
+Node: plane_vertex                             Result: FOUND (Pkg: map_compiler, Kind: function)
+Node: eprintln                                 Result: NOT FOUND
+Node: DrawCircleSector                         Result: NOT FOUND
+Node: SetSoundPan                              Result: NOT FOUND
+Node: flush                                    Result: FOUND (Pkg: bench, Kind: function)
+Node: engine.schema_init                       Result: FOUND (Pkg: engine, Kind: method)
+Node: planes                                   Result: FOUND (Pkg: engine, Kind: field)
+Node: engine.map_write_to_stream               Result: FOUND (Pkg: engine, Kind: method)
+Node: LoadModelAnimations                      Result: NOT FOUND
+Node: thread.pool_start                        Result: NOT FOUND
+Node: exists                                   Result: NOT FOUND
+Node: os.write_entire_file                     Result: NOT FOUND
+Node: plane_vert                               Result: FOUND (Pkg: engine, Kind: method)
+Node: bsp_subdivide                            Result: FOUND (Pkg: map_compiler, Kind: function)
+Node: endian.put_f32                           Result: NOT FOUND
+Node: os.open                                  Result: NOT FOUND
+Node: init_for_read                            Result: FOUND (Pkg: archive, Kind: method)
+Node: filepath.short_stem                      Result: NOT FOUND
+Node: UnloadModelAnimations                    Result: NOT FOUND
+Node: builder_destroy                          Result: NOT FOUND
+Node: write_table_cell                         Result: NOT FOUND
+Node: rl.DrawRectangle                         Result: NOT FOUND
+Node: net_send_reliable                        Result: FOUND (Pkg: engine, Kind: function)
+Node: archive.destroy                          Result: FOUND (Pkg: archive, Kind: method)
+Node: ctx.file_loader                          Result: NOT FOUND
+Node: chan.recv                                Result: NOT FOUND
+Node: unicode.is_print                         Result: NOT FOUND
+Node: sort                                     Result: NOT FOUND
+Node: builder_make                             Result: NOT FOUND
+Node: strings.reader_init                      Result: NOT FOUND
+Node: rl.GetRayCollisionBox                    Result: NOT FOUND
+Node: get_file_raw                             Result: FOUND (Pkg: archive, Kind: method)
+Node: infof                                    Result: NOT FOUND
+Node: audio_map_get                            Result: FOUND (Pkg: engine, Kind: function)
+Node: client                                   Result: FOUND (Pkg: engine, Kind: field)
+Node: new_state_game                           Result: FOUND (Pkg: engine, Kind: function)
+Node: mem.tracking_allocator_init              Result: NOT FOUND
+Node: max                                      Result: NOT FOUND
+Node: log.errorf                               Result: NOT FOUND
+Node: thread.pool_destroy                      Result: NOT FOUND
+Node: write_to_stream                          Result: FOUND (Pkg: archive, Kind: method)
+Node: quake.get_entities                       Result: FOUND (Pkg: quake, Kind: function)
+Node: dev_console_logger                       Result: FOUND (Pkg: engine, Kind: method)
+Node: net_server_destroy                       Result: FOUND (Pkg: engine, Kind: method)
+Node: clone_to_cstring                         Result: NOT FOUND
+Node: rl.Vector3RotateByAxisAngle              Result: NOT FOUND
+Node: thread.run_with_poly_data4               Result: NOT FOUND
+Node: sleep                                    Result: NOT FOUND
+Node: state_stack_render_ui                    Result: FOUND (Pkg: engine, Kind: method)
+Node: post_load                                Result: NOT FOUND
+Node: locale_is_cjk                            Result: FOUND (Pkg: engine, Kind: function)
+Node: engine.new_light                         Result: FOUND (Pkg: engine, Kind: method)
+Node: load_entity_def                          Result: FOUND (Pkg: engine, Kind: function)
+Node: strconv.parse_f32                        Result: NOT FOUND
+Node: engine.game_run_host                     Result: FOUND (Pkg: engine, Kind: method)
+Node: log.debugf                               Result: NOT FOUND
+Node: dev_console_render                       Result: FOUND (Pkg: engine, Kind: method)
+Node: table_get                                Result: FOUND (Pkg: containers, Kind: function)
+Node: T                                        Result: FOUND (Pkg: engine, Kind: struct)
+Node: bsp_score_plane                          Result: FOUND (Pkg: map_compiler, Kind: function)
+Node: table_length                             Result: FOUND (Pkg: containers, Kind: function)
+Node: chan.Chan                                Result: NOT FOUND
+Node: render_ui                                Result: NOT FOUND
+Node: filepath.clean                           Result: NOT FOUND
+Node: stopwatch_start                          Result: NOT FOUND
+Node: dev_console_register_defaults            Result: FOUND (Pkg: engine, Kind: method)
+Node: strings.trim                             Result: NOT FOUND
+Node: dev_console_toggle                       Result: FOUND (Pkg: engine, Kind: method)
+Node: rl.UnloadModel                           Result: NOT FOUND
+Node: host_connect                             Result: NOT FOUND
+Node: histogram_set_rm                         Result: FOUND (Pkg: engine, Kind: method)
+Node: plane_avg_of_vertices                    Result: FOUND (Pkg: quake, Kind: method)
+Node: rl.Vector3Transform                      Result: NOT FOUND
+Node: archive.init_for_read                    Result: FOUND (Pkg: archive, Kind: method)
+Node: try_spawn                                Result: NOT FOUND
+Node: iterator_head                            Result: NOT FOUND
+Node: model_table_clear_entity_models          Result: FOUND (Pkg: engine, Kind: method)
+Node: send                                     Result: NOT FOUND
+Node: engine.game_run_server                   Result: FOUND (Pkg: engine, Kind: method)
+Node: zero                                     Result: NOT FOUND
+Node: progress                                 Result: FOUND (Pkg: engine, Kind: field)
+Node: GetCharPressed                           Result: NOT FOUND
+Node: animation_table_destroy                  Result: FOUND (Pkg: engine, Kind: method)
+Node: entity_forward                           Result: FOUND (Pkg: engine, Kind: method)
+Node: io.write_string                          Result: NOT FOUND
+Node: map_compiler.start_scoped_timer          Result: FOUND (Pkg: map_compiler, Kind: function)
+Node: brush_get_bounding_box                   Result: FOUND (Pkg: quake, Kind: function)
+Node: compile_map                              Result: FOUND (Pkg: map_compiler, Kind: function)
+Node: fmt.eprintf                              Result: NOT FOUND
+Node: os.exit                                  Result: NOT FOUND
+Node: CloseWindow                              Result: NOT FOUND
+Node: abs                                      Result: NOT FOUND
+Node: hash.fnv32                               Result: NOT FOUND
+Node: rl.DrawText                              Result: NOT FOUND
+Node: state_stack_pop                          Result: FOUND (Pkg: engine, Kind: method)
+Node: gamemode_free                            Result: FOUND (Pkg: engine, Kind: method)
+Node: map_parser_destroy                       Result: FOUND (Pkg: quake, Kind: method)
+Node: destroy_value                            Result: NOT FOUND
+Node: close                                    Result: NOT FOUND
+Node: containers.table_append                  Result: FOUND (Pkg: containers, Kind: function)
+Node: start_scoped_timer                       Result: FOUND (Pkg: map_compiler, Kind: function)
+Node: schema_init                              Result: FOUND (Pkg: engine, Kind: method)
+Node: map_parser_read_brush                    Result: FOUND (Pkg: quake, Kind: method)
+Node: parse_vec3                               Result: FOUND (Pkg: quake, Kind: function)
+Node: io.flush                                 Result: NOT FOUND
+Node: rl.DrawLine                              Result: NOT FOUND
+Node: rl.SetTraceLogLevel                      Result: NOT FOUND
+Node: model_table_init                         Result: FOUND (Pkg: engine, Kind: method)
+Node: filepath.rel                             Result: NOT FOUND
+Node: strings.unsafe_string_to_cstring         Result: NOT FOUND
+Node: back.register_segfault_handler           Result: FOUND (Pkg: back, Kind: function)
+Node: io.seek                                  Result: NOT FOUND
+Node: apply_queued_map_change                  Result: FOUND (Pkg: engine, Kind: method)
+Node: map_compiler.compile_map                 Result: FOUND (Pkg: map_compiler, Kind: function)
+Node: read_int                                 Result: FOUND (Pkg: parse, Kind: function)
+Node: reader_buffered                          Result: NOT FOUND
+Node: rl.EndTextureMode                        Result: NOT FOUND
+Node: SetTextureFilter                         Result: NOT FOUND
+Node: rl.GetShaderLocation                     Result: NOT FOUND
+Node: add_property                             Result: FOUND (Pkg: main, Kind: method)
+Node: hash.murmur32                            Result: NOT FOUND
+Node: copy                                     Result: NOT FOUND
+Node: map_parser_init_from_file                Result: FOUND (Pkg: quake, Kind: method)
+Node: engine.lighting_grid_destroy             Result: FOUND (Pkg: engine, Kind: method)
+Node: slice.map_keys                           Result: NOT FOUND
+Node: rl.UnloadShader                          Result: NOT FOUND
+Node: server                                   Result: FOUND (Pkg: engine, Kind: field)
+Node: rl.BeginTextureMode                      Result: NOT FOUND
+Node: table_delete                             Result: FOUND (Pkg: containers, Kind: function)
+Node: MouseButton                              Result: FOUND (Pkg: engine, Kind: field)
+Node: write_entire_file                        Result: NOT FOUND
+Node: thread.pool_init                         Result: NOT FOUND
+Node: plane_remove_vertices_behind             Result: FOUND (Pkg: quake, Kind: method)

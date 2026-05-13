@@ -1,50 +1,54 @@
 package main
 
 import (
+	"doc_generator/pkg/store"
 	"fmt"
-	"strings"
-
-	tree_sitter "github.com/tree-sitter/go-tree-sitter"
-	tree_sitter_javascript "github.com/tree-sitter/tree-sitter-javascript/bindings/go"
 )
 
-func main() {
-	code := `
-import React from 'react';
-
-type Props = {
-    title: string;
-    onClick: () => void;
-}
-
-export class MyComp extends React.Component<Props> {
-    render(): JSX.Element { 
-        return <div>Hello</div> 
-    }
-}
-
-export const FuncComp = ({title}: Props): JSX.Element => {
-    return <div>{title}</div>;
-}
-`
-	parser := tree_sitter.NewParser()
-	defer parser.Close()
-	parser.SetLanguage(tree_sitter.NewLanguage(tree_sitter_javascript.Language()))
-
-	tree := parser.Parse([]byte(code), nil)
-	defer tree.Close()
-
-	printAST(tree.RootNode(), 0, []byte(code))
-}
-
-func printAST(n *tree_sitter.Node, depth int, src []byte) {
-	if n == nil { return }
-	indent := strings.Repeat("  ", depth)
-	text := string(src[n.StartByte():n.EndByte()])
-	if len(text) > 30 { text = text[:30] + "..." }
-	text = strings.ReplaceAll(text, "\n", " ")
-	fmt.Printf("%s%s: %q\n", indent, n.Kind(), text)
-	for i := uint(0); i < n.ChildCount(); i++ {
-		printAST(n.Child(i), depth+1, src)
+func getSymbolURL(fullName string, source *store.Source) string {
+	sym := source.FindSymbolByFullName(fullName)
+	if sym == nil {
+		return ""
 	}
+	pkg := sym.Package
+	if pkg == "" {
+		pkg = "main"
+	}
+	switch sym.Kind {
+	case store.SymStruct:
+		return fmt.Sprintf("../pages/pkg_%s.html#struct_%s", pkg, sym.Name)
+	case store.SymInterface:
+		return fmt.Sprintf("../pages/pkg_%s.html#interface_%s", pkg, sym.Name)
+	case store.SymMethod:
+		return fmt.Sprintf("../pages/pkg_%s.html#func_%s_%s", pkg, sym.Parent, sym.Name)
+	case store.SymFunction:
+		return fmt.Sprintf("../pages/pkg_%s.html#func_%s", pkg, sym.Name)
+	}
+	return ""
+}
+
+func getDotURLAttr(fullName string, source *store.Source) string {
+	url := getSymbolURL(fullName, source)
+	if url == "" {
+		return ""
+	}
+	return fmt.Sprintf(", URL=\"%s\", target=\"_top\"", url)
+}
+
+func main() {
+	source := &store.Source{
+		Symbols: []store.Symbol{
+			{
+				Name:    "ParseCoverage",
+				Kind:    store.SymFunction,
+				Package: "store",
+			},
+		},
+	}
+
+	source.BuildIndexes()
+
+	fmt.Println("Testing store.ParseCoverage lookup:")
+	urlAttr := getDotURLAttr("store.ParseCoverage", source)
+	fmt.Printf("Result: '%s'\n", urlAttr)
 }
